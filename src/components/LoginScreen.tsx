@@ -141,6 +141,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, langua
           </span>
         </button>
 
+        {/* Quick Instant Access / Guest Mode */}
+        <button
+          type="button"
+          id="guest-enter-btn"
+          onClick={() => {
+            const guestUser: UserProfile = {
+              uid: 'freegen_guest_' + Math.random().toString(36).substring(2, 8),
+              displayName: isAr ? 'مستخدم تجريبي' : 'Guest User',
+              email: 'guest@freegen.ai',
+              photoURL: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
+            };
+            localStorage.setItem('freegen_auth_user', JSON.stringify(guestUser));
+            onLoginSuccess(guestUser);
+          }}
+          className="w-full mt-2 py-3 px-4 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 text-sm font-semibold rounded-2xl border border-slate-700/60 flex items-center justify-center gap-2 transition active:scale-98 cursor-pointer"
+        >
+          <span>{isAr ? '⚡ الدخول السريع فوراً (بدون انتظار)' : '⚡ Quick Instant Enter'}</span>
+        </button>
+
         {/* Action Buttons on Login Screen: Install App & Download Code */}
         <div className="mt-3 space-y-2 w-full">
           <button

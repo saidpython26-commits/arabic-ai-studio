@@ -1,56 +1,104 @@
-export const config = {
-  runtime: 'edge',
-};
+import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { GoogleGenAI } from '@google/genai';
 
-export default async function handler(req: Request) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+function getAvailableApiKeys(customHeaderKey?: string): string[] {
+  const keys: string[] = [];
+  if (customHeaderKey && typeof customHeaderKey === 'string' && customHeaderKey.trim().length > 10) {
+    keys.push(customHeaderKey.trim());
   }
 
-  const apiKey = req.headers.get('x-gemini-key') || process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'Missing Gemini API Key' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
+  const envKeysRaw = [
+    process.env.GEMINI_API_KEY,
+    process.env.GEMINI_API_KEY_2,
+    process.env.GEMINI_API_KEY_3,
+    process.env.GEMINI_API_KEYS,
+  ];
 
-  const body = await req.json().catch(() => ({}));
-  const { messages, model = 'gemini-2.5-flash' } = body;
-
-  try {
-    const formattedContents = (messages || []).map((m: any) => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content || '' }],
-    }));
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-
-    const geminiRes = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: formattedContents }),
-    });
-
-    if (!geminiRes.ok) {
-      const err = await geminiRes.text();
-      return new Response(err, { status: geminiRes.status });
+  for (const raw of envKeysRaw) {
+    if (!raw) continue;
+    const parts = raw.split(',').map((k) => k.trim()).filter(Boolean);
+    for (const p of parts) {
+      if (!keys.includes(p)) {
+        keys.push(p);
+      }
     }
-
-    return new Response(geminiRes.body, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive',
-      },
-    });
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message || 'Internal error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
   }
+  return keys;
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { messages = [], attachedFile } = req.body || {};
+  const customKey = req.headers['x-gemini-key'] as string | undefined;
+  const keys = getAvailableApiKeys(customKey);
+
+  if (keys.length === 0) {
+    return res.status(500).json({ error: 'No Gemini API keys configured' });
+  }
+
+  // Set SSE response headers
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let streamed = false;
+
+  for (const key of keys) {
+    if (streamed) break;
+    const ai = new GoogleGenAI({ apiKey: key });
+
+    for (const modelName of models) {
+      try {
+        const contents: any[] = [];
+        for (const msg of messages) {
+          const role = msg.role === 'assistant' ? 'model' : 'user';
+          contents.push({
+            role,
+            parts: [{ text: msg.content }],
+          });
+        }
+
+        if (attachedFile?.base64Data && attachedFile?.mimeType) {
+          const cleanBase64 = attachedFile.base64Data.replace(/^data:.*?;base64,/, '');
+          const lastUserContent = contents[contents.length - 1];
+          if (lastUserContent && lastUserContent.role === 'user') {
+            lastUserContent.parts.unshift({
+              inlineData: {
+                data: cleanBase64,
+                mimeType: attachedFile.mimeType,
+              },
+            });
+          }
+        }
+
+        const streamResult = await ai.models.generateContentStream({
+          model: modelName,
+          contents,
+        });
+
+        for await (const chunk of streamResult) {
+          const text = chunk.text;
+          if (text) {
+            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          }
+        }
+
+        res.write(`data: [DONE]\n\n`);
+        streamed = true;
+        break;
+      } catch (err) {
+        console.warn(`Vercel function model ${modelName} with key error:`, err);
+      }
+    }
+  }
+
+  if (!streamed) {
+    res.write(`data: ${JSON.stringify({ error: 'Failed to generate response' })}\n\n`);
+  }
+  res.end();
 }
