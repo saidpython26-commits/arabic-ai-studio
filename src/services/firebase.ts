@@ -1,31 +1,57 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  doc,
+  getDocFromServer
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const db = firebaseConfig.firestoreDatabaseId
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
-  : getFirestore(app);
+// Initialize Firestore with robust local caching and multi-tab sync
+function getInitializedDb() {
+  const dbId = firebaseConfig.firestoreDatabaseId || '(default)';
+  try {
+    return initializeFirestore(
+      app,
+      {
+        localCache: persistentLocalCache({
+          tabManager: persistentMultipleTabManager(),
+        }),
+      },
+      dbId
+    );
+  } catch {
+    // If already initialized or unsupported, return existing instance
+    return dbId && dbId !== '(default)'
+      ? getFirestore(app, dbId)
+      : getFirestore(app);
+  }
+}
 
-// Verify connection as specified in Firebase guidelines
+export const db = getInitializedDb();
+
+// Verify connection as specified in Firebase guidelines without blocking the app
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log('Firestore connection verified successfully.');
+    const testDoc = doc(db, 'test', 'connection');
+    await getDocFromServer(testDoc);
     return true;
-  } catch (error: any) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('Firestore client is currently offline:', error.message);
-    } else {
-      console.info('Firestore ping received response from server.');
-    }
+  } catch {
+    // Expected when offline or during initial cold start; app safely falls back to local storage
     return false;
   }
 }
 
-// Automatically test connection on load
-testFirestoreConnection().catch(() => {});
+// Background ping to keep Firestore warm without raising uncaught warnings
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    testFirestoreConnection().catch(() => {});
+  }, 1000);
+}
