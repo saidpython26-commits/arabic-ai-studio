@@ -1,3 +1,4 @@
+import { generateGeminiDirect } from '../services/geminiDirect';
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -253,32 +254,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
     let accumulatedText = resumeFromText || '';
 
     // Check if offline before starting fetch
-    if (!networkManager.isOnline()) {
-      setIsStreaming(false);
-      setConversations((prevList) =>
-        prevList.map((c) => {
-          if (c.id !== targetConv.id) return c;
-          const msgs = c.messages.map((m) =>
-            m.id === aiMsgId
-              ? {
-                  ...m,
-                  content: accumulatedText,
-                  interrupted: !!resumeFromText,
-                  isPendingOffline: !resumeFromText,
-                }
-              : m
-          );
-          return { ...c, messages: msgs };
-        })
-      );
-      onShowToast(
-        isAr
-          ? 'لا يوجد اتصال بالإنترنت - الرسالة محفوظة وستُرسل تلقائياً فور عودة الشبكة'
-          : 'Offline - Request queued and will execute automatically when online',
-        'info'
-      );
-      return;
-    }
+    // Always proceed with fetch naturally; browser and fetch will attempt directly
+
 
     try {
       // Build messages history payload
@@ -304,21 +281,49 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
       }
 
       const customKey = storageService.getCustomApiKey();
-      const response = await fetch('/api/gemini/chat/stream', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(customKey ? { 'x-gemini-key': customKey } : {}),
-        },
-        body: JSON.stringify({
-          messages: baseMsgs,
-          attachedFile: attachment,
-        }),
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error('Failed to connect to streaming API');
+            let response: Response | null = null;
+      try {
+        response = await fetch('/api/gemini/chat/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(customKey ? { 'x-gemini-key': customKey } : {}),
+          },
+          body: JSON.stringify({
+            messages: baseMsgs,
+            attachedFile: attachment,
+          }),
+        });
+      } catch (e) {
+        console.warn('Backend fetch failed, attempting client-side fallback:', e);
       }
+
+      if (!response || !response.ok || !response.body) {
+        if (customKey) {
+          await generateGeminiDirect(
+            customKey,
+            baseMsgs.map(m => ({ role: m.role, content: m.content })),
+            (liveText) => {
+              accumulatedText = liveText;
+              setConversations((prevList) =>
+                prevList.map((c) => {
+                  if (c.id !== targetConv.id) return c;
+                  const msgs = c.messages.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, content: accumulatedText, interrupted: false, isPendingOffline: false }
+                      : m
+                  );
+                  return { ...c, messages: msgs };
+                })
+              );
+            }
+          );
+          return;
+        } else {
+          throw new Error('Failed to connect to streaming API and no custom key provided');
+        }
+      }
+
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
@@ -482,7 +487,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
-      isPendingOffline: !networkManager.isOnline(),
+      isPendingOffline: false,
     };
 
     const isFirstMsg = targetConv.messages.length === 0;
@@ -850,26 +855,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
                     )}
 
                     {/* Offline Queued Indicator */}
-                    {msg.isPendingOffline && (
-                      <div className="mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 flex flex-col gap-2">
-                        <div className="flex items-center gap-2">
-                          <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
-                          <span>
-                            {isAr
-                              ? 'الرسالة محفوظة محلياً - بانتظار عودة الإنترنت للإرسال فوراً...'
-                              : 'Message queued locally - waiting for internet reconnect...'}
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => handleRestartMessage(msg.id)}
-                          disabled={isStreaming}
-                          className="self-start px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
-                        >
-                          <RefreshCw className="w-3 h-3" />
-                          <span>{isAr ? 'محاولة الإرسال الآن' : 'Send now'}</span>
-                        </button>
-                      </div>
-                    )}
+                    {/* Offline queued banner removed for seamless experience */}
 
                     {/* Interrupted Stream Recovery Card */}
                     {msg.interrupted && (

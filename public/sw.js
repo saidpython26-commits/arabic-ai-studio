@@ -1,22 +1,7 @@
-const CACHE_NAME = 'freegen-ai-v2';
-const PRECACHE_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/icon-maskable-512.png',
-  '/apple-touch-icon.png'
-];
+const CACHE_NAME = 'freegen-ai-v3';
 
+// Force immediate takeover
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('Pre-cache warning:', err);
-      });
-    })
-  );
   self.skipWaiting();
 });
 
@@ -26,6 +11,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('Purging old cache:', key);
             return caches.delete(key);
           }
         })
@@ -35,39 +21,45 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first strategy for navigation and HTML so installed PWA updates immediately
 self.addEventListener('fetch', (event) => {
-  // Let API requests go directly to network without caching
-  if (event.request.url.includes('/api/')) {
+  const url = new URL(event.request.url);
+
+  // APIs always direct to network
+  if (url.pathname.startsWith('/api/')) {
     return;
   }
 
+  // HTML / Navigation: Network First, fallback to cache
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request).then((res) => res || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // Static assets (js, css, images) - Stale While Revalidate
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then((networkResponse) => {
-        // Cache static assets dynamically
-        if (
-          networkResponse &&
-          networkResponse.status === 200 &&
-          (event.request.destination === 'style' ||
-            event.request.destination === 'script' ||
-            event.request.destination === 'image' ||
-            event.request.destination === 'font')
-        ) {
-          const responseClone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
-          });
-        }
-        return networkResponse;
-      }).catch(() => {
-        // Fallback to cached index for navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
-      });
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });

@@ -28,10 +28,25 @@
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then((reg) => {
-            console.log('FreeGen PWA ServiceWorker registered with scope:', reg.scope);
+            reg.update(); // Immediately check for latest version
+            reg.onupdatefound = () => {
+              const installing = reg.installing;
+              if (installing) {
+                installing.onstatechange = () => {
+                  if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                    // Force refresh to switch to updated version immediately
+                    window.location.reload();
+                  }
+                };
+              }
+            };
           }).catch((err) => {
             console.warn('ServiceWorker registration note:', err);
           });
+        });
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          window.location.reload();
         });
       }
     </script>

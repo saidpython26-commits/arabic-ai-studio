@@ -693,6 +693,33 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
         {/* Danger Zone & Logout */}
         <div className="space-y-2.5 pt-2">
+          
+          {/* Force App Update & Refresh Button */}
+          <button
+            id="force-update-app-btn"
+            type="button"
+            onClick={async () => {
+              try {
+                if ('serviceWorker' in navigator) {
+                  const regs = await navigator.serviceWorker.getRegistrations();
+                  for (let reg of regs) {
+                    await reg.unregister();
+                  }
+                }
+                if ('caches' in window) {
+                  const keys = await caches.keys();
+                  for (let key of keys) {
+                    await caches.delete(key);
+                  }
+                }
+              } catch (e) {}
+              window.location.reload();
+            }}
+            className="w-full py-3 px-4 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>{isAr ? 'تحديث التطبيق المثبت لأحدث نسخة فوراً (Refresh & Update)' : 'Update Installed App Now'}</span>
+          </button>
           <button
             id="clear-all-data-btn"
             type="button"

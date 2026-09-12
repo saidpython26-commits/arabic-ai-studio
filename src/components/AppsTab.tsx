@@ -88,16 +88,8 @@ export const AppsTab: React.FC<AppsTabProps> = ({ user, language, onShowToast })
     if (!p || isGenerating) return;
 
     // Check network status before fetching
-    if (!networkManager.isOnline()) {
-      setPendingAppJob(p);
-      onShowToast(
-        isAr
-          ? 'لا يوجد اتصال بالإنترنت - تم حفظ فكرة التطبيق وستُبنى تلقائياً فور عودة الشبكة'
-          : 'Offline - App idea queued, will build automatically when online',
-        'info'
-      );
-      return;
-    }
+    // Proceed directly with generation
+
 
     setIsGenerating(true);
     try {

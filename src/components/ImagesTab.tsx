@@ -115,16 +115,8 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
     if (!p || isGenerating) return;
 
     // If offline: queue request in pendingJob and alert user
-    if (!networkManager.isOnline()) {
-      setPendingJob({ prompt: p, aspectRatio: ratio, style });
-      onShowToast(
-        isAr
-          ? 'لا يوجد اتصال - تم حفظ طلب توليد الصورة وسيبدأ تلقائياً فور عودة الإنترنت'
-          : 'Offline - Request saved, will generate automatically upon reconnect',
-        'info'
-      );
-      return;
-    }
+    // Proceed directly with generation
+
 
     setIsGenerating(true);
     try {
