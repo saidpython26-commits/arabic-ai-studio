@@ -1,4 +1,4 @@
-const CACHE_NAME = 'freegen-ai-v3';
+const CACHE_NAME = 'freegen-ai-v4';
 
 // Force immediate takeover
 self.addEventListener('install', (event) => {
@@ -30,36 +30,17 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // HTML / Navigation: Network First, fallback to cache
-  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
-    event.respondWith(
-      fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => caches.match(event.request).then((res) => res || caches.match('/index.html')))
-    );
-    return;
-  }
-
-  // Static assets (js, css, images) - Stale While Revalidate
+  // Network First for all assets to guarantee latest updates
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request).then((res) => res || (event.request.mode === 'navigate' ? caches.match('/index.html') : null)))
   );
 });
+
