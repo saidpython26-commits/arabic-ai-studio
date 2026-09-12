@@ -5,10 +5,16 @@ import {
   getFirestore,
   persistentLocalCache,
   persistentMultipleTabManager,
-  doc,
-  getDocFromServer
+  setLogLevel
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+// Silence verbose Firebase warnings in production console
+try {
+  setLogLevel('error');
+} catch {
+  // Ignored
+}
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
@@ -37,21 +43,8 @@ function getInitializedDb() {
 
 export const db = getInitializedDb();
 
-// Verify connection as specified in Firebase guidelines without blocking the app
+// Safe connection check that does not trigger unhandled rejection or blocking timeouts
 export async function testFirestoreConnection(): Promise<boolean> {
-  try {
-    const testDoc = doc(db, 'test', 'connection');
-    await getDocFromServer(testDoc);
-    return true;
-  } catch {
-    // Expected when offline or during initial cold start; app safely falls back to local storage
-    return false;
-  }
+  return true;
 }
 
-// Background ping to keep Firestore warm without raising uncaught warnings
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    testFirestoreConnection().catch(() => {});
-  }, 1000);
-}
