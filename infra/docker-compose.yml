@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: freegen-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    # GPU acceleration can be enabled if NVIDIA runtime is available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  redis:
+    image: redis:7-alpine
+    container_name: freegen-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: freegen-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - DEFAULT_CHAT_MODEL=llama3.1:8b
+      - DEFAULT_EMBED_MODEL=nomic-embed-text
+      - DEFAULT_CODE_MODEL=qwen2.5-coder:7b
+      - DATABASE_URL=sqlite:///./data/app.db
+      - REDIS_URL=redis://redis:6379
+      - WORKSPACES_DIR=./workspaces
+      - DATA_DIR=./data
+    volumes:
+      - ./data:/app/data
+      - ./workspaces:/app/workspaces
+    depends_on:
+      - ollama
+      - redis
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: freegen-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  ollama_models:
+    name: freegen_ollama_models

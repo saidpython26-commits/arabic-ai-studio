@@ -1,0 +1,6 @@
+{
+  "name": "FreeGen AI Studio",
+  "description": "تطبيق ويب عربي مخصص للهواتف يجمع بين الدردشة الذكية، توليد الصور، وإنشاء التطبيقات باستخدام الذكاء الاصطناعي.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
