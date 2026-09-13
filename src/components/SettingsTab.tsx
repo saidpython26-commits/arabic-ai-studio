@@ -33,6 +33,7 @@ import { storageService } from '../services/storage';
 import { authService } from '../services/auth';
 import { networkManager } from '../services/networkManager';
 import { InstallPwaCard } from './InstallPwaCard';
+import { testGeminiApiKey } from '../services/geminiDirect';
 
 interface SettingsTabProps {
   user: UserProfile;
@@ -62,6 +63,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customKeyInput, setCustomKeyInput] = useState(() => storageService.getCustomApiKey());
   const [savedKeySuccess, setSavedKeySuccess] = useState(false);
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [keyValidationStatus, setKeyValidationStatus] = useState<{
+    tested: boolean;
+    valid?: boolean;
+    model?: string;
+    error?: string;
+  } | null>(null);
 
   // Feedback state
   const [feedbackRating, setFeedbackRating] = useState<number>(5);
@@ -110,16 +118,53 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
     setTimeout(() => setCopiedUrl(false), 2500);
   };
 
-  const handleSaveCustomKey = () => {
-    storageService.setCustomApiKey(customKeyInput);
-    setSavedKeySuccess(true);
-    onShowToast(
-      customKeyInput.trim()
-        ? (isAr ? 'تم حفظ وتفعيل مفتاح Gemini المخصص بنجاح!' : 'Custom Gemini key saved and activated!')
-        : (isAr ? 'تم إزالة المفتاح المخصص واستعادة المفاتيح التلقائية' : 'Custom key cleared, default rotation active'),
-      'success'
-    );
-    setTimeout(() => setSavedKeySuccess(false), 2500);
+  const handleSaveCustomKey = async () => {
+    const trimmed = customKeyInput.trim();
+    if (!trimmed) {
+      storageService.setCustomApiKey('');
+      setSavedKeySuccess(true);
+      setKeyValidationStatus(null);
+      onShowToast(
+        isAr ? 'تم إزالة المفتاح المخصص واستعادة المفاتيح التلقائية' : 'Custom key cleared, default rotation active',
+        'info'
+      );
+      setTimeout(() => setSavedKeySuccess(false), 2500);
+      return;
+    }
+
+    setIsTestingKey(true);
+    setKeyValidationStatus(null);
+    try {
+      const res = await testGeminiApiKey(trimmed);
+      if (res.valid) {
+        storageService.setCustomApiKey(trimmed);
+        setSavedKeySuccess(true);
+        setKeyValidationStatus({ tested: true, valid: true, model: res.model });
+        onShowToast(
+          isAr
+            ? `✅ تم فحص وتفعيل المفتاح بنجاح! متصل بـ ${res.model}`
+            : `✅ Key verified successfully! Connected to ${res.model}`,
+          'success'
+        );
+      } else {
+        // Still save it if user wants, but warn
+        storageService.setCustomApiKey(trimmed);
+        setKeyValidationStatus({ tested: true, valid: false, error: res.error });
+        onShowToast(
+          isAr
+            ? 'تم حفظ المفتاح، لكن تعذر الاتصال بـ Gemini. يرجى التأكد من صلاحيته.'
+            : 'Key saved, but could not connect to Gemini.',
+          'error'
+        );
+      }
+    } catch {
+      storageService.setCustomApiKey(trimmed);
+      setSavedKeySuccess(true);
+      onShowToast(isAr ? 'تم حفظ المفتاح محلياً!' : 'Key saved locally!', 'success');
+    } finally {
+      setIsTestingKey(false);
+      setTimeout(() => setSavedKeySuccess(false), 3000);
+    }
   };
 
   const handleToggleSimulateOffline = () => {
@@ -444,33 +489,81 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
           <div className="space-y-2 bg-slate-900/80 p-3 rounded-xl border border-slate-750">
             <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-              <span>{isAr ? 'مفتاح Gemini الخاص بك (اختياري - للاستخدام الخاص الكامل):' : 'Custom Gemini API Key (Optional):'}</span>
+              <span>{isAr ? 'مفتاح Gemini الخاص بك (مباشر ومستقل 100%):' : 'Custom Gemini API Key (Direct & 100% Owned):'}</span>
               {customKeyInput.trim() && (
-                <span className="text-[10px] text-emerald-400 font-bold">{isAr ? 'مُفعّل' : 'Active'}</span>
+                <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  {isAr ? 'مُفعّل ومحفوظ' : 'Active & Saved'}
+                </span>
               )}
             </label>
             <input
-              type="password"
+              type="text"
               value={customKeyInput}
-              onChange={(e) => setCustomKeyInput(e.target.value)}
-              placeholder="AIzaSy..."
+              onChange={(e) => {
+                setCustomKeyInput(e.target.value);
+                setKeyValidationStatus(null);
+              }}
+              placeholder="AQ.Ab8... أو AIzaSy..."
               className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-slate-100 outline-none focus:border-amber-400/80 transition"
             />
             <p className="text-[10px] text-slate-400 leading-relaxed">
               {isAr
-                ? 'إذا أردت ضمان عدم مشاركة سقف الطلبات مع أي شخص، يمكنك استخراج مفتاح مجاني من aistudio.google.com ووضعه هنا.'
-                : 'Get a free personal API key from aistudio.google.com and enter it here for dedicated quota.'}
+                ? 'يدعم المفاتيح الحديثة الصادرة من Google AI Studio (سواء كانت تبدأ بـ AQ.Ab8 أو AIzaSy). يمكنك استخراج مفتاح مجاني بضغطة واحدة من aistudio.google.com.'
+                : 'Supports modern Google AI Studio keys (starting with AQ.Ab8 or AIzaSy). Get a free key at aistudio.google.com.'}
             </p>
+
+            {keyValidationStatus && (
+              <div
+                className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                  keyValidationStatus.valid
+                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                }`}
+              >
+                {keyValidationStatus.valid ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>
+                      {isAr
+                        ? `المفتاح صالح 100%! تم التحقق والاتصال بنجاح بنموذج ${keyValidationStatus.model}.`
+                        : `Key is 100% valid! Connected to ${keyValidationStatus.model}.`}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      {keyValidationStatus.error || (isAr ? 'تعذر فحص المفتاح' : 'Key check failed')}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center gap-2 pt-1">
               <button
                 type="button"
+                disabled={isTestingKey}
                 onClick={handleSaveCustomKey}
-                className="flex-1 py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition cursor-pointer shadow-xs"
+                className="flex-1 py-2 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
               >
-                {savedKeySuccess
-                  ? (isAr ? 'تم الحفظ والتفعيل!' : 'Saved!')
-                  : (isAr ? 'حفظ وتفعيل المفتاح' : 'Save & Activate')}
+                {isTestingKey ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{isAr ? 'جاري فحص المفتاح مع Google...' : 'Verifying key with Google...'}</span>
+                  </>
+                ) : savedKeySuccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isAr ? 'تم الحفظ والتفعيل!' : 'Saved & Activated!'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-3.5 h-3.5" />
+                    <span>{isAr ? 'فحص وتفعيل المفتاح الآن' : 'Verify & Activate Key'}</span>
+                  </>
+                )}
               </button>
               {customKeyInput.trim() && (
                 <button
@@ -478,9 +571,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   onClick={() => {
                     setCustomKeyInput('');
                     storageService.setCustomApiKey('');
+                    setKeyValidationStatus(null);
                     onShowToast(isAr ? 'تم مسح المفتاح المخصص' : 'Custom key cleared', 'info');
                   }}
-                  className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 border border-slate-700 text-xs font-medium transition cursor-pointer"
+                  className="py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 border border-slate-700 text-xs font-medium transition cursor-pointer"
                 >
                   {isAr ? 'مسح' : 'Clear'}
                 </button>

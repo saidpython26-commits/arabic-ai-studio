@@ -121,32 +121,51 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
     setIsGenerating(true);
     try {
       const customKey = storageService.getCustomApiKey();
-      const response = await fetch('/api/gemini/image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(customKey ? { 'x-gemini-key': customKey } : {}),
-        },
-        body: JSON.stringify({
-          prompt: p,
-          aspectRatio: ratio,
-          style,
-          variation: variationOffset,
-        }),
-      });
+      let finalImageUrl = '';
+      let finalEnhanced = p;
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || 'فشل توليد الصورة');
+      try {
+        const response = await fetch('/api/gemini/image', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(customKey ? { 'x-gemini-key': customKey } : {}),
+          },
+          body: JSON.stringify({
+            prompt: p,
+            aspectRatio: ratio,
+            style,
+            variation: variationOffset,
+          }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          finalImageUrl = data.imageUrl;
+          finalEnhanced = data.enhancedPrompt || p;
+        }
+      } catch (fetchErr) {
+        console.warn('Backend image fetch failed, using direct Flux diffusion:', fetchErr);
       }
 
-      const data = await response.json();
+      // Fallback for static PWA / GitHub Pages: generate directly with Flux model
+      if (!finalImageUrl) {
+        let width = ratio === '16:9' ? 1280 : ratio === '9:16' ? 720 : 1024;
+        let height = ratio === '16:9' ? 720 : ratio === '9:16' ? 1280 : 1024;
+        const seed = Math.floor(Math.random() * 899999) + 100000;
+        const negative = encodeURIComponent('blurry, distorted, bad anatomy, lowres, watermark, ugly');
+        const stylePrefix = style !== 'photorealistic' ? `${style} style, ` : '';
+        finalEnhanced = `${stylePrefix}${p}, highly detailed, centered composition`;
+        finalImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+          finalEnhanced
+        )}?width=${width}&height=${height}&seed=${seed}&model=flux&nologo=true&negative=${negative}`;
+      }
+
       networkManager.reportSuccess();
       const newImg: GeneratedImage = {
         id: `img_${Date.now()}`,
         prompt: p,
-        enhancedPrompt: data.enhancedPrompt,
-        imageUrl: data.imageUrl,
+        enhancedPrompt: finalEnhanced,
+        imageUrl: finalImageUrl,
         aspectRatio: ratio,
         style,
         createdAt: Date.now(),

@@ -318,83 +318,85 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
               );
             }
           );
-          return;
         } else {
-          throw new Error('Failed to connect to streaming API and no custom key provided');
+          throw new Error(
+            isAr
+              ? 'يرجى وضع مفتاح Gemini المجاني في تبويب الإعدادات لتشغيل الشات مباشرة.'
+              : 'Please enter your free Gemini API key in Settings to chat directly.'
+          );
         }
-      }
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
 
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
+          const rawChunk = decoder.decode(value, { stream: true });
+          const lines = rawChunk.split('\n');
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.replace('data: ', '').trim();
+              if (dataStr === '[DONE]') break;
 
-        const rawChunk = decoder.decode(value, { stream: true });
-        const lines = rawChunk.split('\n');
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (parsed.text) {
+                  networkManager.reportSuccess();
+                  accumulatedText += parsed.text;
+                  // Live update assistant message
+                  setConversations((prevList) =>
+                    prevList.map((c) => {
+                      if (c.id !== targetConv.id) return c;
+                      const msgs = c.messages.map((m) =>
+                        m.id === aiMsgId
+                          ? {
+                              ...m,
+                              content: accumulatedText,
+                              interrupted: false,
+                              isPendingOffline: false,
+                            }
+                          : m
+                      );
+                      return { ...c, messages: msgs };
+                    })
+                  );
+                } else if (parsed.error) {
+                  let cleanErr = parsed.error;
+                  if (typeof cleanErr === 'string') {
+                    try {
+                      const parsedErrObj = JSON.parse(cleanErr);
+                      if (parsedErrObj.error?.message) {
+                        cleanErr = parsedErrObj.error.message;
+                      }
+                    } catch {}
+                  }
+                  const errorAlert = isAr
+                    ? `\n\n⚠️ تنبيه: ${cleanErr}`
+                    : `\n\n⚠️ Notice: ${cleanErr}`;
+                  accumulatedText += errorAlert;
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.replace('data: ', '').trim();
-            if (dataStr === '[DONE]') break;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              if (parsed.text) {
-                networkManager.reportSuccess();
-                accumulatedText += parsed.text;
-                // Live update assistant message
-                setConversations((prevList) =>
-                  prevList.map((c) => {
-                    if (c.id !== targetConv.id) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === aiMsgId
-                        ? {
-                            ...m,
-                            content: accumulatedText,
-                            interrupted: false,
-                            isPendingOffline: false,
-                          }
-                        : m
-                    );
-                    return { ...c, messages: msgs };
-                  })
-                );
-              } else if (parsed.error) {
-                let cleanErr = parsed.error;
-                if (typeof cleanErr === 'string') {
-                  try {
-                    const parsedErrObj = JSON.parse(cleanErr);
-                    if (parsedErrObj.error?.message) {
-                      cleanErr = parsedErrObj.error.message;
-                    }
-                  } catch {}
+                  setConversations((prevList) =>
+                    prevList.map((c) => {
+                      if (c.id !== targetConv.id) return c;
+                      const msgs = c.messages.map((m) =>
+                        m.id === aiMsgId
+                          ? {
+                              ...m,
+                              content: accumulatedText,
+                              interrupted: true,
+                              isPendingOffline: false,
+                            }
+                          : m
+                      );
+                      return { ...c, messages: msgs };
+                    })
+                  );
                 }
-                const errorAlert = isAr
-                  ? `\n\n⚠️ تنبيه: ${cleanErr}`
-                  : `\n\n⚠️ Notice: ${cleanErr}`;
-                accumulatedText += errorAlert;
-
-                setConversations((prevList) =>
-                  prevList.map((c) => {
-                    if (c.id !== targetConv.id) return c;
-                    const msgs = c.messages.map((m) =>
-                      m.id === aiMsgId
-                        ? {
-                            ...m,
-                            content: accumulatedText,
-                            interrupted: true,
-                            isPendingOffline: false,
-                          }
-                        : m
-                    );
-                    return { ...c, messages: msgs };
-                  })
-                );
-              }
-            } catch {}
+              } catch {}
+            }
           }
         }
       }

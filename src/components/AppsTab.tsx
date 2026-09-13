@@ -20,6 +20,7 @@ import {
 import { GeneratedApp, Language, UserProfile } from '../types';
 import { storageService } from '../services/storage';
 import { networkManager } from '../services/networkManager';
+import { generateAppDirect } from '../services/geminiDirect';
 
 interface AppsTabProps {
   user: UserProfile;
@@ -94,21 +95,33 @@ export const AppsTab: React.FC<AppsTabProps> = ({ user, language, onShowToast })
     setIsGenerating(true);
     try {
       const customKey = storageService.getCustomApiKey();
-      const response = await fetch('/api/gemini/app', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(customKey ? { 'x-gemini-key': customKey } : {}),
-        },
-        body: JSON.stringify({ prompt: p }),
-      });
+      let data: { appName?: string; description?: string; html: string } | null = null;
 
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.error || 'فشل توليد التطبيق');
+      try {
+        const response = await fetch('/api/gemini/app', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(customKey ? { 'x-gemini-key': customKey } : {}),
+          },
+          body: JSON.stringify({ prompt: p }),
+        });
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (fetchErr) {
+        console.warn('Backend app generation failed, falling back to direct API:', fetchErr);
       }
 
-      const data = await response.json();
+      // If backend was 404 or unreachable, generate directly using user's Gemini key
+      if (!data && customKey) {
+        data = await generateAppDirect(customKey, p);
+      }
+
+      if (!data || !data.html) {
+        throw new Error('تعذر بناء التطبيق. تأكد من تفعيل مفتاحك الخاص في الإعدادات أو الاتصال بالإنترنت.');
+      }
+
       networkManager.reportSuccess();
       const newApp: GeneratedApp = {
         id: `app_${Date.now()}`,
