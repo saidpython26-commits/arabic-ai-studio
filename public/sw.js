@@ -1,4 +1,4 @@
-const CACHE_NAME = 'freegen-ai-v4';
+const CACHE_NAME = 'freegen-ai-v5';
 
 // Force immediate takeover
 self.addEventListener('install', (event) => {
