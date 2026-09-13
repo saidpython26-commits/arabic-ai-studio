@@ -27,6 +27,27 @@ export async function testGeminiApiKey(apiKey: string): Promise<{ valid: boolean
   return { valid: false, error: 'تعذر التحقق من المفتاح. تأكد من صحته أو اتصال الإنترنت.' };
 }
 
+function getLiveSystemPrompt(): string {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ar-EG', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeStr = now.toLocaleTimeString('ar-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const isoDate = now.toISOString().split('T')[0];
+
+  return `أنت FreeGen AI، المساعد الذكي والمستشار التقني المتخصص في البرمجة والحلول التقنية المتقدمة باللغة العربية. قدم إجابات وافية ودقيقة ومدعومة بالأمثلة البرمجية والتنسيق الواضح.
+معلومات التوقيت واللحظة الحالية:
+- اليوم والتاريخ الحالي بدقة: ${dateStr} (${isoDate}).
+- الوقت الحالي: ${timeStr}.
+أنت على دراية تامة ولحظية بالتاريخ والوقت الفعلي الحالي، وتجيب بدقة كاملة عند السؤال عن الوقت أو التاريخ أو الأحداث الحالية.`;
+}
+
 export async function generateGeminiDirect(
   apiKey: string,
   messages: Array<{ role: string; content: string }>,
@@ -39,6 +60,8 @@ export async function generateGeminiDirect(
     role: m.role === 'assistant' ? 'model' : 'user',
     parts: [{ text: m.content }],
   }));
+
+  const systemPromptText = getLiveSystemPrompt();
 
   let lastError: Error | null = null;
 
@@ -53,7 +76,7 @@ export async function generateGeminiDirect(
           systemInstruction: {
             parts: [
               {
-                text: 'أنت FreeGen AI، المساعد الذكي والمستشار التقني المتخصص في البرمجة والحلول التقنية المتقدمة باللغة العربية. قدم إجابات وافية ودقيقة ومدعومة بالأمثلة البرمجية والتنسيق الواضح.',
+                text: systemPromptText,
               },
             ],
           },

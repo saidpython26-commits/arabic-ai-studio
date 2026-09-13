@@ -206,9 +206,26 @@ app.post('/api/gemini/chat/stream', async (req, res) => {
 
   // Format conversation history for Gemini
   const contents: any[] = [];
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ar-EG', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const timeStr = now.toLocaleTimeString('ar-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const isoDate = now.toISOString().split('T')[0];
+
   const sysPrompt =
     systemInstruction ||
     `أنت "FreeGen AI"، مساعد ذكاء اصطناعي عربي فائق الذكاء، ومستشار برمجي وتقني من الطراز الرفيع (Senior Full-Stack AI Engineer & Deep Reasoning Architect).
+معلومات التوقيت واللحظة الحالية:
+- اليوم والتاريخ الحالي بدقة: ${dateStr} (${isoDate}).
+- الوقت الحالي: ${timeStr}.
+أنت على دراية تامة ولحظية بالتاريخ والوقت الفعلي الحالي، وتجيب بدقة كاملة بناءً عليه.
 التعليمات الأساسية لمنهجية عملك:
 1. التفكير العميق والمنطقي (Deep Analytical Reasoning):
    - قم بتحليل السؤال وسياقه بدقة، ورتب إجابتك ترتيباً منطقياً وسلساً.

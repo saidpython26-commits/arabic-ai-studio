@@ -1,4 +1,5 @@
 import { generateGeminiDirect } from '../services/geminiDirect';
+import { searchLiveWeb } from '../services/webSearch';
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -25,6 +26,7 @@ import {
   RefreshCw,
   Download,
   Smartphone,
+  Globe,
 } from 'lucide-react';
 import { ChatMessage, Conversation, Language, UserProfile, ChatAttachment } from '../types';
 import { storageService } from '../services/storage';
@@ -52,6 +54,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
   const [inputMessage, setInputMessage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [attachedFile, setAttachedFile] = useState<ChatAttachment | null>(null);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('freegen_web_search') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isSearchingWeb, setIsSearchingWeb] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
@@ -278,6 +288,26 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
             ? 'واصل وأكمل باقي الإجابة أو الكود البرمجي من حيث توقفت بالضبط دون إعادة أو تكرار ما سبق:'
             : 'Please continue and complete the remaining response/code exactly from where you stopped without repeating:',
         });
+      }
+
+      if (isWebSearchEnabled && userMsgContent && userMsgContent.trim() && !resumeFromText) {
+        setIsSearchingWeb(true);
+        try {
+          const searchItems = await searchLiveWeb(userMsgContent.trim());
+          if (searchItems.length > 0) {
+            const contextText =
+              `\n\n[معلومات ونتائج البحث الحي المباشر من الويب للرجوع إليها (${new Date().toLocaleDateString('ar-EG')}):]\n` +
+              searchItems.map((s) => `• ${s.title} (${s.source}): ${s.snippet}`).join('\n');
+            const lastIdx = baseMsgs.length - 1;
+            if (lastIdx >= 0) {
+              baseMsgs[lastIdx].content += contextText;
+            }
+          }
+        } catch (sErr) {
+          console.warn('Web search lookup error:', sErr);
+        } finally {
+          setIsSearchingWeb(false);
+        }
       }
 
       const customKey = storageService.getCustomApiKey();
@@ -948,6 +978,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
 
       {/* Chat Input Section */}
       <div className="p-3 bg-slate-900 border-t border-slate-800 shrink-0 z-20">
+        {isSearchingWeb && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-400 mb-2 px-1 animate-pulse">
+            <Globe className="w-3.5 h-3.5 animate-spin" />
+            <span>{isAr ? 'جارٍ البحث في الويب وتحديث المعلومات الحية...' : 'Searching live web data...'}</span>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -971,6 +1007,36 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
             title={isAr ? 'إرفاق ملف (PDF / TXT)' : 'Attach file'}
           >
             <Paperclip className="w-4 h-4" />
+          </button>
+
+          {/* Live Web Search Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const newVal = !isWebSearchEnabled;
+              setIsWebSearchEnabled(newVal);
+              try {
+                localStorage.setItem('freegen_web_search', newVal ? 'true' : 'false');
+              } catch {}
+              onShowToast(
+                newVal
+                  ? (isAr ? 'تم تفعيل البحث الحي في الويب 🌐' : 'Live web search enabled 🌐')
+                  : (isAr ? 'تم تعطيل البحث في الويب' : 'Web search disabled'),
+                'info'
+              );
+            }}
+            className={`p-1.5 rounded-xl transition cursor-pointer flex items-center gap-1 shrink-0 ${
+              isWebSearchEnabled
+                ? 'text-emerald-400 bg-emerald-500/20 border border-emerald-500/40 shadow-xs'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title={
+              isWebSearchEnabled
+                ? (isAr ? 'البحث الحي في الويب مفعّل (انقر للتعطيل)' : 'Live Web Search: Active (click to disable)')
+                : (isAr ? 'البحث الحي في الويب معطّل (انقر للتفعيل)' : 'Live Web Search: Disabled (click to enable)')
+            }
+          >
+            <Globe className="w-4 h-4" />
           </button>
 
           <input
