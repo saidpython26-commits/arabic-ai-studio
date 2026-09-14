@@ -178,3 +178,96 @@ export async function generateAppDirect(
 
   throw new Error('فشل توليد التطبيق مباشرة عبر المفتاح');
 }
+
+export async function generateSlidesDirect(
+  apiKey: string,
+  topic: string
+): Promise<{ topic: string; summary: string; slides: any[] }> {
+  const trimmedKey = apiKey.trim();
+  const sysPrompt = `أنت أستاذ ومحاضر عبقري في تبسيط أصعب العلوم والمفاهيم.
+المطلوب: شرح الموضوع التالي في عرض تقديمي تعليمي تفاعلي من 4 إلى 5 شرائح بصيغة JSON حصرية:
+"${topic}"
+
+الصيغة المطلوبة:
+{
+  "topic": "${topic}",
+  "summary": "ملخص شامل وممتع للدرس في سطرين",
+  "slides": [
+    {
+      "id": "s1",
+      "title": "عنوان الشريحة",
+      "badge": "الفكرة الجوهرية / آلية العمل / التشبيه الواقعي / أمثلة وتطبيقات / الخلاصة والاتقان",
+      "content": ["نقطة 1", "نقطة 2", "نقطة 3"],
+      "analogy": "تشبيه حسي واقعي يبسط الفكرة",
+      "keyTakeaway": "القاعدة الذهبية المستفادة"
+    }
+  ]
+}`;
+
+  for (const model of DIRECT_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${trimmedKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: topic }] }],
+          systemInstruction: { parts: [{ text: sysPrompt }] },
+          generationConfig: { responseMimeType: 'application/json' },
+        }),
+      });
+
+      if (!res.ok) continue;
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      const parsed = JSON.parse(rawText);
+      if (parsed && Array.isArray(parsed.slides) && parsed.slides.length > 0) {
+        return parsed;
+      }
+    } catch (e) {
+      console.warn(`Direct slides model ${model} error:`, e);
+    }
+  }
+
+  throw new Error('فشل توليد العرض التقديمي مباشرة عبر المفتاح');
+}
+
+export async function generateBusinessDirect(
+  apiKey: string,
+  params: {
+    businessName: string;
+    businessType: string;
+    description: string;
+    whatsappNumber: string;
+    mode: 'analysis' | 'campaign' | 'customer_reply';
+    customerMessage?: string;
+  }
+): Promise<any> {
+  const trimmedKey = apiKey.trim();
+  const sysPrompt = `أنت كبير مستشاري الأعمال والتسويق وخدمة العملاء. أرجع إجابة JSON حصراً وفق المطلوب بدقة.`;
+  const userPrompt = `بيانات الطلب: ${JSON.stringify(params)}`;
+
+  for (const model of DIRECT_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${trimmedKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: userPrompt }] }],
+          systemInstruction: { parts: [{ text: sysPrompt }] },
+          generationConfig: { responseMimeType: 'application/json' },
+        }),
+      });
+
+      if (!res.ok) continue;
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      return JSON.parse(rawText);
+    } catch (e) {
+      console.warn(`Direct business model ${model} error:`, e);
+    }
+  }
+
+  throw new Error('فشل معالجة أعمالك مباشرة عبر المفتاح');
+}

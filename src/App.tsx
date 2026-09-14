@@ -7,6 +7,8 @@ import { BottomNav } from './components/BottomNav';
 import { ChatTab } from './components/ChatTab';
 import { ImagesTab } from './components/ImagesTab';
 import { AppsTab } from './components/AppsTab';
+import { SlidesTab } from './components/SlidesTab';
+import { BusinessTab } from './components/BusinessTab';
 import { SettingsTab } from './components/SettingsTab';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { NetworkStatusBar } from './components/NetworkStatusBar';
@@ -174,6 +176,22 @@ export default function App() {
 
               {activeTab === 'apps' && (
                 <AppsTab
+                  user={currentUser}
+                  language={settings.language}
+                  onShowToast={showToast}
+                />
+              )}
+
+              {activeTab === 'slides' && (
+                <SlidesTab
+                  user={currentUser}
+                  language={settings.language}
+                  onShowToast={showToast}
+                />
+              )}
+
+              {activeTab === 'business' && (
+                <BusinessTab
                   user={currentUser}
                   language={settings.language}
                   onShowToast={showToast}

@@ -8,11 +8,13 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Conversation, GeneratedImage, GeneratedApp } from '../types';
+import { Conversation, GeneratedImage, GeneratedApp, GeneratedPresentation, BusinessProfile } from '../types';
 
 const CONV_KEY_PREFIX = 'freegen_conversations_';
 const IMG_KEY_PREFIX = 'freegen_images_';
 const APP_KEY_PREFIX = 'freegen_apps_';
+const SLIDES_KEY_PREFIX = 'freegen_slides_';
+const BUSINESS_KEY_PREFIX = 'freegen_business_';
 
 export const storageService = {
   // --- Conversations ---
@@ -212,13 +214,82 @@ export const storageService = {
       messagesCount: totalMessages,
       imagesCount: images.length,
       appsCount: apps.length,
+      presentationsCount: this.getPresentations(uid).length,
     };
+  },
+
+  // --- Presentations ---
+  getPresentations(uid: string): GeneratedPresentation[] {
+    try {
+      const raw = localStorage.getItem(`${SLIDES_KEY_PREFIX}${uid}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('Failed to get presentations:', e);
+      return [];
+    }
+  },
+
+  async savePresentation(uid: string, pres: GeneratedPresentation): Promise<void> {
+    try {
+      const list = this.getPresentations(uid);
+      const filtered = list.filter((p) => p.id !== pres.id);
+      filtered.unshift(pres);
+      localStorage.setItem(`${SLIDES_KEY_PREFIX}${uid}`, JSON.stringify(filtered));
+
+      const presRef = doc(db, 'users', uid, 'presentations', pres.id);
+      await setDoc(presRef, { ...pres, userId: uid }, { merge: true });
+    } catch (e) {
+      console.warn('Firestore presentation sync note:', e);
+    }
+  },
+
+  async deletePresentation(uid: string, presId: string): Promise<void> {
+    try {
+      const list = this.getPresentations(uid).filter((p) => p.id !== presId);
+      localStorage.setItem(`${SLIDES_KEY_PREFIX}${uid}`, JSON.stringify(list));
+
+      const presRef = doc(db, 'users', uid, 'presentations', presId);
+      await deleteDoc(presRef);
+    } catch (e) {
+      console.warn('Firestore presentation deletion note:', e);
+    }
+  },
+
+  // --- Business Profile ---
+  getBusinessProfile(uid: string): BusinessProfile {
+    try {
+      const raw = localStorage.getItem(`${BUSINESS_KEY_PREFIX}${uid}`);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch {}
+    return {
+      businessName: '',
+      businessType: '',
+      whatsappNumber: '',
+      telegramUsername: '',
+      description: '',
+    };
+  },
+
+  async saveBusinessProfile(uid: string, profile: BusinessProfile): Promise<void> {
+    try {
+      localStorage.setItem(`${BUSINESS_KEY_PREFIX}${uid}`, JSON.stringify(profile));
+      const busRef = doc(db, 'users', uid, 'profile', 'business');
+      await setDoc(busRef, { ...profile, userId: uid }, { merge: true });
+    } catch (e) {
+      console.warn('Firestore business profile sync note:', e);
+    }
   },
 
   clearAllUserData(uid: string): void {
     this.clearAllConversations(uid);
     this.clearAllImages(uid);
     this.clearAllApps(uid);
+    localStorage.removeItem(`${SLIDES_KEY_PREFIX}${uid}`);
+    localStorage.removeItem(`${BUSINESS_KEY_PREFIX}${uid}`);
   },
 
   // --- Custom Gemini API Key Storage ---

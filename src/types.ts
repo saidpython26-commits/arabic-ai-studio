@@ -1,6 +1,6 @@
 export type Language = 'ar' | 'en';
 export type Theme = 'dark' | 'light';
-export type ActiveTab = 'chat' | 'images' | 'apps' | 'settings';
+export type ActiveTab = 'chat' | 'images' | 'apps' | 'slides' | 'business' | 'settings';
 
 export interface UserProfile {
   uid: string;
@@ -50,6 +50,49 @@ export interface GeneratedApp {
   description: string;
   html: string;
   createdAt: number;
+}
+
+export interface SlideItem {
+  id: string;
+  title: string;
+  badge?: string;
+  content: string[];
+  analogy?: string; // Real-world analogy simplifying the concept
+  keyTakeaway: string;
+  codeSnippet?: string;
+  bgColor?: string;
+}
+
+export interface GeneratedPresentation {
+  id: string;
+  topic: string;
+  summary: string;
+  slides: SlideItem[];
+  createdAt: number;
+}
+
+export interface BusinessProfile {
+  businessName: string;
+  businessType: string;
+  whatsappNumber: string;
+  telegramUsername: string;
+  description: string;
+}
+
+export interface BusinessAnalysis {
+  swot: {
+    strengths: string[];
+    weaknesses: string[];
+    opportunities: string[];
+    threats: string[];
+  };
+  growthTips: string[];
+  suggestedCampaigns: Array<{
+    title: string;
+    offer: string;
+    targetAudience: string;
+    callToAction: string;
+  }>;
 }
 
 export interface AppSettings {

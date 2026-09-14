@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Image, Code2, Settings, Download } from 'lucide-react';
+import { MessageSquare, Image, Code2, Presentation, Briefcase, Settings, Download } from 'lucide-react';
 import { ActiveTab, Language } from '../types';
 
 interface BottomNavProps {
@@ -21,29 +21,39 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     {
       id: 'chat',
       label: isAr ? 'الدردشة' : 'Chat',
-      icon: <MessageSquare className="w-5 h-5" />,
+      icon: <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />,
     },
     {
       id: 'images',
       label: isAr ? 'الصور' : 'Images',
-      icon: <Image className="w-5 h-5" />,
+      icon: <Image className="w-4 h-4 sm:w-5 sm:h-5" />,
     },
     {
       id: 'apps',
       label: isAr ? 'التطبيقات' : 'Apps',
-      icon: <Code2 className="w-5 h-5" />,
+      icon: <Code2 className="w-4 h-4 sm:w-5 sm:h-5" />,
+    },
+    {
+      id: 'slides',
+      label: isAr ? 'العروض' : 'Slides',
+      icon: <Presentation className="w-4 h-4 sm:w-5 sm:h-5" />,
+    },
+    {
+      id: 'business',
+      label: isAr ? 'الأعمال' : 'Business',
+      icon: <Briefcase className="w-4 h-4 sm:w-5 sm:h-5" />,
     },
     {
       id: 'settings',
       label: isAr ? 'الإعدادات' : 'Settings',
-      icon: <Settings className="w-5 h-5" />,
+      icon: <Settings className="w-4 h-4 sm:w-5 sm:h-5" />,
     },
   ];
 
   return (
     <nav
       id="bottom-navigation-bar"
-      className="w-full bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-3 py-2 flex items-center justify-around z-30 shrink-0 select-none pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      className="w-full bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-1 sm:px-2 py-1.5 flex items-center justify-between z-30 shrink-0 select-none pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
       {tabs.map((tab) => {
         const isActive = activeTab === tab.id;
@@ -52,14 +62,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
             key={tab.id}
             id={`nav-tab-${tab.id}`}
             onClick={() => onTabChange(tab.id)}
-            className={`flex flex-col items-center justify-center py-1 px-3 rounded-2xl transition-all duration-200 cursor-pointer min-w-[64px] ${
+            className={`flex flex-col items-center justify-center py-1 px-1.5 sm:px-2 rounded-xl transition-all duration-200 cursor-pointer flex-1 min-w-0 ${
               isActive
-                ? 'text-emerald-400 font-semibold scale-105'
+                ? 'text-emerald-400 font-bold scale-105'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             <div
-              className={`relative p-1.5 rounded-xl transition-colors ${
+              className={`relative p-1 rounded-lg transition-colors ${
                 isActive ? 'bg-emerald-500/15 text-emerald-400' : 'bg-transparent'
               }`}
             >
@@ -68,7 +78,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 <span className="absolute -top-0.5 right-1/2 translate-x-1/2 w-1.5 h-1.5 bg-emerald-400 rounded-full" />
               )}
             </div>
-            <span className="text-[11px] mt-0.5 whitespace-nowrap">{tab.label}</span>
+            <span className="text-[10px] sm:text-[11px] mt-0.5 truncate max-w-[50px] text-center">{tab.label}</span>
           </button>
         );
       })}

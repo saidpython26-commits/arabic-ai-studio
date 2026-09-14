@@ -27,6 +27,9 @@ import {
   Download,
   Star,
   Send,
+  Save,
+  Github,
+  UploadCloud,
 } from 'lucide-react';
 import { AppSettings, UserProfile } from '../types';
 import { storageService } from '../services/storage';
@@ -75,6 +78,76 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   const [feedbackRating, setFeedbackRating] = useState<number>(5);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackSent, setFeedbackSent] = useState(false);
+
+  // WhatsApp & Telegram configuration state
+  const [bizWhatsapp, setBizWhatsapp] = useState(() => storageService.getBusinessProfile(user.uid).whatsappNumber || '');
+  const [bizTelegram, setBizTelegram] = useState(() => storageService.getBusinessProfile(user.uid).telegramUsername || '');
+  const [bizSaved, setBizSaved] = useState(false);
+
+  const handleSaveSocialChannels = async () => {
+    const current = storageService.getBusinessProfile(user.uid);
+    await storageService.saveBusinessProfile(user.uid, {
+      ...current,
+      whatsappNumber: bizWhatsapp,
+      telegramUsername: bizTelegram,
+    });
+    setBizSaved(true);
+    onShowToast(
+      isAr ? 'تم حفظ قنوات التواصل (واتساب وتيلجرام) بنجاح!' : 'Social channels saved!',
+      'success'
+    );
+    setTimeout(() => setBizSaved(false), 2500);
+  };
+
+  // GitHub Pages deployment state
+  const [ghTokenInput, setGhTokenInput] = useState(() => {
+    try {
+      return localStorage.getItem('fg_github_token') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [isDeployingGh, setIsDeployingGh] = useState(false);
+  const [ghDeployResult, setGhDeployResult] = useState<{
+    success?: boolean;
+    message?: string;
+    pagesUrl?: string;
+  } | null>(null);
+
+  const handleDeployGithub = async () => {
+    if (!ghTokenInput.trim()) {
+      onShowToast(isAr ? 'يرجى إدخال رمز الوصول GitHub Token' : 'Please enter GitHub Token', 'error');
+      return;
+    }
+    setIsDeployingGh(true);
+    setGhDeployResult(null);
+    try {
+      localStorage.setItem('fg_github_token', ghTokenInput.trim());
+      const res = await fetch('/api/deploy/github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: ghTokenInput.trim(),
+          repo: 'saidpython26-commits/arabic-ai-studio',
+          updateGhPages: true,
+          updateMain: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setGhDeployResult({ success: true, message: data.message, pagesUrl: data.pagesUrl });
+        onShowToast(isAr ? 'تم تحديث موقع GitHub Pages بنجاح تام!' : 'GitHub Pages updated successfully!', 'success');
+      } else {
+        setGhDeployResult({ success: false, message: data.error || 'فشل التحديث' });
+        onShowToast(data.error || 'فشل التحديث', 'error');
+      }
+    } catch (err: any) {
+      setGhDeployResult({ success: false, message: err.message || 'فشل الاتصال بالخادم' });
+      onShowToast(isAr ? 'حدث خطأ أثناء الاتصال' : 'Connection error', 'error');
+    } finally {
+      setIsDeployingGh(false);
+    }
+  };
 
   const handleSubmitFeedback = (e: React.FormEvent) => {
     e.preventDefault();
@@ -357,6 +430,79 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
         </div>
 
+        {/* WhatsApp, Telegram & Channels Integration Card */}
+        <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 space-y-3.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+              <Send className="w-4 h-4 text-emerald-400" />
+              <span>{isAr ? 'ربط الواتساب والتيلجرام وقنوات التواصل' : 'WhatsApp & Telegram Channels'}</span>
+            </h3>
+            <button
+              onClick={handleSaveSocialChannels}
+              className="px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs flex items-center gap-1 cursor-pointer transition-transform active:scale-95"
+            >
+              {bizSaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{bizSaved ? (isAr ? 'تم الحفظ' : 'Saved') : (isAr ? 'حفظ الأرقام' : 'Save')}</span>
+            </button>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            {isAr
+              ? 'اربط رقم الواتساب ومعرف التيلجرام لتمكين الزبائن من مراسلتك وطلب منتجاتك بنقرة واحدة، ومشاركة الإعلانات والعروض الترويجية مباشرة.'
+              : 'Connect your WhatsApp number and Telegram handle for 1-click customer orders and direct campaign broadcasts.'}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div className="space-y-1">
+              <label className="text-slate-300 font-semibold flex items-center justify-between">
+                <span>{isAr ? 'رقم الواتساب (مع كود الدولة):' : 'WhatsApp Number:'}</span>
+                {bizWhatsapp && (
+                  <a
+                    href={`https://wa.me/${bizWhatsapp.replace(/[^\d]/g, '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-emerald-400 hover:text-emerald-300 text-[10px] flex items-center gap-0.5"
+                  >
+                    <span>{isAr ? 'تجربة المحادثة' : 'Test'}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </label>
+              <input
+                type="text"
+                value={bizWhatsapp}
+                onChange={(e) => setBizWhatsapp(e.target.value)}
+                placeholder="+966501234567 أو 212612345678"
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 outline-none focus:border-emerald-500 dir-ltr text-left"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-slate-300 font-semibold flex items-center justify-between">
+                <span>{isAr ? 'معرف أو رابط التيلجرام:' : 'Telegram Handle:'}</span>
+                {bizTelegram && (
+                  <a
+                    href={`https://t.me/${bizTelegram.replace('@', '')}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-400 hover:text-sky-300 text-[10px] flex items-center gap-0.5"
+                  >
+                    <span>{isAr ? 'فتح الرابط' : 'Open'}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </label>
+              <input
+                type="text"
+                value={bizTelegram}
+                onChange={(e) => setBizTelegram(e.target.value)}
+                placeholder="@my_channel أو my_username"
+                className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 outline-none focus:border-sky-500 dir-ltr text-left"
+              />
+            </div>
+          </div>
+        </div>
+
         {/* Standalone Application & Direct Link (Decoupled from Agent) */}
         <div className="bg-gradient-to-br from-emerald-950/40 via-slate-800 to-slate-850 border border-emerald-500/30 rounded-2xl p-4 space-y-3.5 shadow-md">
           <div className="flex items-center justify-between">
@@ -465,6 +611,117 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               {isAr
                 ? 'يتضمن ملف Dockerfile ودليل التشغيل render.yaml لتشغيله بنقرة واحدة على أي استضافة خاصة بك.'
                 : 'Includes Dockerfile and render.yaml for 1-click self-hosting anywhere.'}
+            </p>
+          </div>
+        </div>
+
+        {/* GitHub Pages Live Deployment & Sync Card */}
+        <div className="bg-gradient-to-br from-indigo-950/40 via-slate-800 to-slate-850 border border-indigo-500/30 rounded-2xl p-4 space-y-3.5 shadow-md">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Github className="w-4 h-4 text-indigo-400" />
+              <span>{isAr ? 'نشر وتحديث موقع GitHub Pages' : 'GitHub Pages Direct Deploy & Sync'}</span>
+            </h3>
+            <span className="text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-full border border-indigo-500/30">
+              gh-pages
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-300 leading-relaxed">
+            {isAr
+              ? 'موقعك الخاص على GitHub Pages مربوط بالمستودع saidpython26-commits/arabic-ai-studio. يمكنك تحديثه بالكامل بنقرة زر واحدة أو تنزيل ملفات الموقع الجاهزة.'
+              : 'Your live site on GitHub Pages is linked to saidpython26-commits/arabic-ai-studio. Update it with 1-click or download prebuilt files.'}
+          </p>
+
+          {/* GitHub Pages Direct Link */}
+          <div className="space-y-1.5 bg-slate-900/90 p-3 rounded-xl border border-indigo-500/30">
+            <div className="text-[11px] font-bold text-indigo-300 flex items-center justify-between">
+              <span>{isAr ? 'رابط موقعك على GitHub Pages:' : 'Your GitHub Pages URL:'}</span>
+              <a
+                href="https://saidpython26-commits.github.io/arabic-ai-studio/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold"
+              >
+                <span>{isAr ? 'زيارة الموقع' : 'Visit Site'}</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+            <div className="text-xs font-mono text-indigo-200 bg-black/50 p-2.5 rounded-lg border border-slate-700/80 break-all select-all flex items-center justify-between gap-2">
+              <span>https://saidpython26-commits.github.io/arabic-ai-studio/</span>
+              <button
+                type="button"
+                onClick={() => handleCopyUrl('https://saidpython26-commits.github.io/arabic-ai-studio/')}
+                className="text-slate-400 hover:text-white p-1"
+                title={isAr ? 'نسخ الرابط' : 'Copy'}
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Token Input & Push Action */}
+          <div className="space-y-2 bg-slate-900/60 p-3 rounded-xl border border-slate-750">
+            <label className="text-[11px] font-semibold text-slate-300 flex items-center justify-between">
+              <span>{isAr ? 'رمز الوصول GitHub Personal Access Token:' : 'GitHub Token:'}</span>
+              <span className="text-[10px] text-slate-400 font-normal">
+                {isAr ? 'صلاحية repo مطلوبة' : 'repo scope required'}
+              </span>
+            </label>
+            <input
+              type="password"
+              value={ghTokenInput}
+              onChange={(e) => setGhTokenInput(e.target.value)}
+              placeholder="ghp_... أو github_pat_..."
+              className="w-full text-xs font-mono bg-black/40 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2.5 text-slate-100 placeholder-slate-500 outline-hidden transition"
+            />
+
+            <button
+              type="button"
+              disabled={isDeployingGh}
+              onClick={handleDeployGithub}
+              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-md"
+            >
+              {isDeployingGh ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                  <span>{isAr ? 'جاري بناء الموقع والرفع إلى GitHub...' : 'Building and deploying to GitHub...'}</span>
+                </>
+              ) : (
+                <>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>{isAr ? '🚀 رفع وتحديث رابط GitHub Pages الآن' : 'Deploy to GitHub Pages Now'}</span>
+                </>
+              )}
+            </button>
+
+            {ghDeployResult && (
+              <div
+                className={`p-2.5 rounded-lg text-xs leading-relaxed ${
+                  ghDeployResult.success
+                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                    : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+                }`}
+              >
+                {ghDeployResult.message}
+              </div>
+            )}
+          </div>
+
+          {/* Quick ZIP fallback */}
+          <div className="pt-2 border-t border-slate-750/80 flex flex-col gap-2">
+            <a
+              href="/api/export/dist-zip"
+              download="arabic-ai-studio-github-pages.zip"
+              className="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-indigo-500/30 text-indigo-200 text-xs font-semibold flex items-center justify-center gap-2 transition"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-400" />
+              <span>{isAr ? 'تنزيل حزمة الموقع الجاهزة لـ GitHub Pages (ZIP)' : 'Download Ready GitHub Pages ZIP'}</span>
+            </a>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              💡 {isAr
+                ? 'كيف تنشئ رمز الوصول Token؟ من GitHub > Settings > Developer Settings > Personal access tokens (Tokens classic) > Generate new token، ثم فعّل خيار repo و workflow وانسخ الرمز هنا.'
+                : 'To generate a token: GitHub > Settings > Developer Settings > Personal access tokens > Tokens (classic) > check repo & workflow.'}
             </p>
           </div>
         </div>

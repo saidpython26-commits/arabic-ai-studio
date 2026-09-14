@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import JSZip from 'jszip';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
@@ -164,6 +165,160 @@ app.get('/api/export/project-zip', async (req, res) => {
   } catch (err: any) {
     console.error('Error generating project zip:', err);
     res.status(500).json({ error: 'Failed to generate project zip' });
+  }
+});
+
+// GitHub Pages ready-to-upload static ZIP export
+app.get('/api/export/dist-zip', async (req, res) => {
+  try {
+    const distDir = '/tmp/gh_dist';
+    if (!fs.existsSync(distDir) || !fs.existsSync(path.join(distDir, 'index.html'))) {
+      execSync('npx vite build --base=./ --outDir=/tmp/gh_dist && touch /tmp/gh_dist/.nojekyll', {
+        cwd: process.cwd(),
+        stdio: 'pipe',
+      });
+    }
+
+    const zip = new JSZip();
+    function addDirToZip(currentDir: string, zipFolder: JSZip) {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const sub = zipFolder.folder(entry.name);
+          if (sub) addDirToZip(path.join(currentDir, entry.name), sub);
+        } else if (entry.isFile()) {
+          const content = fs.readFileSync(path.join(currentDir, entry.name));
+          zipFolder.file(entry.name, content);
+        }
+      }
+    }
+
+    addDirToZip(distDir, zip);
+    const buffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="arabic-ai-studio-github-pages.zip"');
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  } catch (err: any) {
+    console.error('Error creating dist zip:', err);
+    res.status(500).json({ error: 'Failed to generate GitHub Pages zip' });
+  }
+});
+
+// Direct GitHub deploy endpoint (executes push safely without logging secret to AI context)
+app.post('/api/deploy/github', async (req, res) => {
+  const { token, repo = 'saidpython26-commits/arabic-ai-studio', updateGhPages = true, updateMain = true } = req.body;
+
+  if (!token || typeof token !== 'string' || token.trim().length < 15) {
+    return res.status(400).json({
+      success: false,
+      error: 'يرجى إدخال رمز GitHub Personal Access Token صالح يبدأ بـ ghp_ أو github_pat_',
+    });
+  }
+
+  const cleanToken = token.trim();
+
+  // 1. Verify token with GitHub API
+  try {
+    const verifyRes = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${cleanToken}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'arabic-ai-studio-deployer',
+      },
+    });
+
+    if (!verifyRes.ok) {
+      const errData = await verifyRes.json().catch(() => ({}));
+      return res.status(401).json({
+        success: false,
+        error: `رفض GitHub هذا الرمز (Bad credentials - ${verifyRes.status}). قد يكون الرمز ملغياً أو غير صحيح. يرجى إنشاء رمز جديد من إعدادات GitHub بصلاحية repo.`,
+        details: errData,
+      });
+    }
+
+    const userData = await verifyRes.json();
+    const username = userData.login || 'saidpython26-commits';
+
+    // 2. Build GitHub Pages static files with relative paths
+    const ghDistPath = '/tmp/gh_deploy_dist';
+    fs.rmSync(ghDistPath, { recursive: true, force: true });
+    fs.mkdirSync(ghDistPath, { recursive: true });
+
+    execSync(`npx vite build --base=./ --outDir=${ghDistPath} && touch ${ghDistPath}/.nojekyll`, {
+      cwd: process.cwd(),
+      stdio: 'pipe',
+    });
+
+    const workDir = `/tmp/gh_work_${Date.now()}`;
+    fs.mkdirSync(workDir, { recursive: true });
+
+    const authedUrl = `https://${username}:${cleanToken}@github.com/${repo}.git`;
+    let ghPagesUpdated = false;
+    let mainUpdated = false;
+
+    // 3. Update gh-pages branch
+    if (updateGhPages) {
+      const ghPagesDir = path.join(workDir, 'gh-pages');
+      execSync(`git clone --depth 1 --branch gh-pages "${authedUrl}" "${ghPagesDir}"`, { stdio: 'pipe' });
+
+      // Clean old files except .git
+      const existingFiles = fs.readdirSync(ghPagesDir);
+      for (const f of existingFiles) {
+        if (f !== '.git') {
+          fs.rmSync(path.join(ghPagesDir, f), { recursive: true, force: true });
+        }
+      }
+
+      // Copy new build
+      execSync(`cp -r ${ghDistPath}/* ${ghDistPath}/.nojekyll "${ghPagesDir}/"`, { stdio: 'pipe' });
+
+      execSync(`cd "${ghPagesDir}" && git config user.name "${username}" && git config user.email "saidabdess26@gmail.com" && git add -A && git commit -m "deploy: update slides, video export, business center, and whatsapp commerce" || true`, { stdio: 'pipe' });
+      execSync(`cd "${ghPagesDir}" && git push origin gh-pages`, { stdio: 'pipe' });
+      ghPagesUpdated = true;
+    }
+
+    // 4. Update main branch
+    if (updateMain) {
+      const mainDir = path.join(workDir, 'main');
+      execSync(`git clone --depth 1 --branch main "${authedUrl}" "${mainDir}"`, { stdio: 'pipe' });
+
+      // Copy source files from project root excluding ignored files
+      const ignored = new Set(['node_modules', 'dist', '.git', '.github', '.cache']);
+      const rootEntries = fs.readdirSync(process.cwd(), { withFileTypes: true });
+      for (const entry of rootEntries) {
+        if (ignored.has(entry.name) || entry.name.startsWith('.env')) continue;
+        const srcPath = path.join(process.cwd(), entry.name);
+        const destPath = path.join(mainDir, entry.name);
+        if (entry.isDirectory()) {
+          fs.cpSync(srcPath, destPath, { recursive: true, force: true });
+        } else {
+          fs.copyFileSync(srcPath, destPath);
+        }
+      }
+
+      execSync(`cd "${mainDir}" && git config user.name "${username}" && git config user.email "saidabdess26@gmail.com" && git add -A && git commit -m "feat: sync SlidesTab, BusinessTab, and WhatsApp settings" || true`, { stdio: 'pipe' });
+      execSync(`cd "${mainDir}" && git push origin main`, { stdio: 'pipe' });
+      mainUpdated = true;
+    }
+
+    // Cleanup temp
+    fs.rmSync(workDir, { recursive: true, force: true });
+
+    return res.json({
+      success: true,
+      message: 'تم تحديث ونشر موقعك على GitHub بنجاح تام وبدون أي أخطاء!',
+      pagesUrl: `https://${repo.split('/')[0]}.github.io/${repo.split('/')[1] || 'arabic-ai-studio'}/`,
+      ghPagesUpdated,
+      mainUpdated,
+    });
+  } catch (err: any) {
+    console.error('GitHub deploy error:', err);
+    return res.status(500).json({
+      success: false,
+      error: `حدث خطأ أثناء الرفع إلى GitHub: ${err.message || err.stderr?.toString() || 'فشل الاتصال'}`,
+    });
   }
 });
 
@@ -812,6 +967,295 @@ app.post('/api/gemini/app', async (req, res) => {
     description: prompt,
     html: finalHtml,
   });
+});
+
+// Presentation / Lessons Slides Explainer Endpoint with JSON Schema & Cascade
+app.post('/api/gemini/slides', async (req, res) => {
+  const { topic } = req.body;
+  const customKey = req.headers['x-gemini-key'] as string | undefined;
+
+  if (!topic || typeof topic !== 'string') {
+    res.status(400).json({ error: 'يرجى كتابة عنوان الدرس أو المفهوم المطلوب شرحه' });
+    return;
+  }
+
+  const availableKeys = getAvailableApiKeys(customKey);
+
+  // Fallback high-quality structured slides if keys are temporarily unavailable
+  const fallbackSlides = {
+    topic,
+    summary: `شرح تفاعلي مبسط وشامل لمفهوم: ${topic} لترسيخ الفهم وتبسيط الأفكار المعقدة بأمثلة وتشبيهات واقعية.`,
+    slides: [
+      {
+        id: 's1',
+        title: `ما هو ${topic}؟ الجوهر والتعريف`,
+        badge: 'الفكرة الجوهرية',
+        content: [
+          `المفهوم الأساسي يهدف إلى حل مشكلة محددة أو تفسير ظاهرة علمية/عملية.`,
+          `بدلاً من التعقيد، يمكن فهمه كنظام من الخطوات المترابطة.`,
+          `يُعتبر هذا المفهوم حجر زاوية في مجاله وله تطبيقات يومية واسعة.`
+        ],
+        analogy: `تخيل أن هذا المفهوم يشبه شبكة إشارات المرور الذكية؛ كل جزء يكمل الآخر لضمان انسيابية العمل دون تصادم.`,
+        keyTakeaway: 'الفهم يبدأ من إدراك الغاية الأساسية قبل الغوص في التفاصيل المعقدة.'
+      },
+      {
+        id: 's2',
+        title: 'كيف يعمل خطوة بخطوة؟',
+        badge: 'آلية العمل',
+        content: [
+          'المرحلة الأولى: استقبال المدخلات أو الشروط الأولية وتجهيزها.',
+          'المرحلة الثانية: معالجة البيانات أو التفاعل وفق قواعد محددة وثابتة.',
+          'المرحلة الثالثة: إنتاج المخرجات أو النتيجة النهائية بدقة.'
+        ],
+        analogy: 'تماماً مثل إعداد وصفة متقنة: المكونات (المدخلات)، الطهي (المعالجة)، والطبق النهائي (المخرجات).',
+        keyTakeaway: 'كل خطوة تعتمد بالكامل على صحة الخطوة التي تسبقها.'
+      },
+      {
+        id: 's3',
+        title: 'أمثلة وتطبيقات عملية ملموسة',
+        badge: 'التطبيق الواقعي',
+        content: [
+          'تطبيقات في التكنولوجيا الحديثة والصناعات المتقدمة.',
+          'كيف يساعدنا هذا المفهوم في تحسين الكفاءة وتوفير الوقت والموارد.',
+          'أمثلة واقعية نراها في حياتنا اليومية دون أن نشعر.'
+        ],
+        analogy: 'مثل استخدام نظام الملاحة GPS؛ يرشدك لأقصر طريق متجاوزاً العقبات بذكاء.',
+        keyTakeaway: 'النظريات تكتسب قيمتها الحقيقية عند تطبيقها على أرض الواقع.'
+      },
+      {
+        id: 's4',
+        title: 'أخطاء شائعة والقاعدة الذهبية',
+        badge: 'الخلاصة والاتقان',
+        content: [
+          'الخطأ الشائع 1: الخلط بين السبب والنتيجة عند دراسة هذا المفهوم.',
+          'الخطأ الشائع 2: إهمال الشروط الأساسية المؤثرة على النتائج.',
+          'نصيحة المراجعة: ربط كل فكرة بتشبيه بصري يسهل استرجاعه أثناء الاختبار أو التطبيق العملي.'
+        ],
+        analogy: 'مثل بناء بيت متين؛ إذا كانت الأساسات قوية، ستصمد الجدران أمام أي عاصفة.',
+        keyTakeaway: 'الإتقان الحقيقي يعني قدرتك على شرح هذا الدرس لطفل في السابعة من عمره ببساطة!'
+      }
+    ]
+  };
+
+  if (availableKeys.length === 0) {
+    res.json(fallbackSlides);
+    return;
+  }
+
+  const promptText = `أنت أستاذ ومحاضر عبقري في تبسيط وتفكيك أصعب العلوم والمفاهيم المعقدة (Master Educator & Visual Explainer).
+المطلوب: شرح الدرس أو الموضوع التالي في عرض تقديمي تعليمي تفاعلي احترافي مكون من 4 إلى 5 شرائح:
+"${topic}"
+
+يجب أن تكون الإجابة بصيغة JSON حصرية، دون أي نصوص إضافية خارج الـ JSON:
+{
+  "topic": "${topic}",
+  "summary": "ملخص شامل وشيق للدرس في سطرين",
+  "slides": [
+    {
+      "id": "s1",
+      "title": "عنوان الشريحة الواضح",
+      "badge": "الفكرة الجوهرية / آلية العمل / التشبيه الواقعي / أمثلة وتطبيقات / الخلاصة والاتقان",
+      "content": ["نقطة توضيحية 1", "نقطة توضيحية 2", "نقطة توضيحية 3"],
+      "analogy": "تشبيه واقعي حسي يبسط الفكرة لأي مبتدئ",
+      "keyTakeaway": "القاعدة الذهبية المستفادة من هذه الشريحة"
+    }
+  ]
+}`;
+
+  for (const key of availableKeys) {
+    const ai = getGenAIClient(key);
+    for (const model of CASCADE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.6,
+          },
+        });
+
+        const raw = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        let clean = raw.trim();
+        if (clean.startsWith('```json')) {
+          clean = clean.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
+        } else if (clean.startsWith('```')) {
+          clean = clean.replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+        }
+        const parsed = JSON.parse(clean);
+        if (parsed && Array.isArray(parsed.slides) && parsed.slides.length > 0) {
+          res.json(parsed);
+          return;
+        }
+      } catch (err: any) {
+        console.warn(`[Slides Gen] Model ${model} failed:`, err?.message);
+      }
+    }
+  }
+
+  res.json(fallbackSlides);
+});
+
+// Business Hub & E-Commerce Analysis Endpoint
+app.post('/api/gemini/business', async (req, res) => {
+  const {
+    businessName = 'نشاط تجاري',
+    businessType = 'تجارة وخدمات',
+    description = '',
+    whatsappNumber = '',
+    mode = 'analysis', // 'analysis' | 'campaign' | 'customer_reply'
+    customerMessage = '',
+  } = req.body;
+  const customKey = req.headers['x-gemini-key'] as string | undefined;
+
+  const availableKeys = getAvailableApiKeys(customKey);
+
+  let systemPrompt = '';
+  let userPrompt = '';
+
+  if (mode === 'customer_reply') {
+    systemPrompt = `أنت خبير محترف في خدمة العملاء والمبيعات باللغة العربية. مهمتك تقديم 3 نماذج ردود احترافية ومهذبة ومقنعة جداً للرد على رسالة أو اعتراض الزبون. الردود يجب أن تكون جاهزة للإرسال فوراً عبر واتساب، وتنهي الرسالة بدعوة واضحة لاتخاذ إجراء (Call to Action).`;
+    userPrompt = `رسالة أو استفسار الزبون: "${customerMessage || 'كم السعر وهل التوصيل متوفر؟'}"
+اسم النشاط: ${businessName} (${businessType})
+رقم الواتساب للتواصل: ${whatsappNumber || 'رقمنا المعتمد'}
+
+أرجع الرد بتنسيق JSON:
+{
+  "replies": [
+    {
+      "tone": "ودي وترحيبي",
+      "text": "نص الرسالة الجاهزة للواتساب مع الإيموجي المناسب"
+    },
+    {
+      "tone": "مقنع وعرض قيمة مضافة",
+      "text": "نص الرسالة الجاهزة للواتساب مع التركيز على الجودة والضمان"
+    },
+    {
+      "tone": "مباشر وسريع للشراء",
+      "text": "نص الرسالة الجاهزة للواتساب مع رابط أو تفاصيل الحجز الفوري"
+    }
+  ]
+}`;
+  } else if (mode === 'campaign') {
+    systemPrompt = `أنت خبير تسويق رقمي وصانع حملات إعلانية فيروسية (Viral Growth Marketer). مهمتك ابتكار 3 عروض ترويجية مميزة مع نصوص إعلانية جذابة لمنصات التواصل (إنستغرام، تيك توك، فيسبوك، واتساب).`;
+    userPrompt = `بيانات النشاط:
+- الاسم: ${businessName}
+- المجال: ${businessType}
+- الوصف: ${description || 'منتجات وخدمات مميزة ذات جودة عالية'}
+- رقم الواتساب: ${whatsappNumber}
+
+أرجع الإجابة بتنسيق JSON حصري:
+{
+  "campaigns": [
+    {
+      "title": "عنوان العرض الترويجي الجذاب",
+      "discountOffer": "تفاصيل الخصم أو العرض (مثلاً اشترِ 1 واحصل على 1 مجاناً أو خصم 30%)",
+      "adCopy": "نص الإعلان الجذاب الكامل مع الإيموجي والهاشتاغات",
+      "whatsappBroadcast": "رسالة البث الجاهزة للإرسال في مجموعات الواتساب",
+      "targetAudience": "الجمهور المستهدف بدقة"
+    }
+  ]
+}`;
+  } else {
+    // Mode: analysis
+    systemPrompt = `أنت كبير مستشاري الأعمال وتطوير المشاريع والتجارة الإلكترونية (Senior Business & Growth Consultant). مهمتك تقديم تحليل شامل وعملي للنشاط التجاري مع نصائح نمو واقعية لزيادة المبيعات.`;
+    userPrompt = `بيانات المشروع:
+- اسم النشاط: ${businessName}
+- نوع النشاط: ${businessType}
+- الوصف: ${description || 'نشاط تجاري يقدم منتجات وخدمات للمستهلكين'}
+
+أرجع التحليل بتنسيق JSON حصري:
+{
+  "swot": {
+    "strengths": ["نقطة قوة 1", "نقطة قوة 2", "نقطة قوة 3"],
+    "weaknesses": ["تحدي أو نقطة بحاجة لتحسين 1", "تحدي 2"],
+    "opportunities": ["فرصة تسويقية أو تجارية واعدة 1", "فرصة 2", "فرصة 3"],
+    "threats": ["مخاطر أو منافسة محتملة 1", "مخاطر 2"]
+  },
+  "growthTips": [
+    "نصيحة عملية 1 لزيادة المبيعات بسرعة",
+    "نصيحة عملية 2 لبناء ولاء العملاء وتكرار الشراء",
+    "نصيحة عملية 3 لتحسين الحملات على واتساب وتيلجرام",
+    "نصيحة عملية 4 لتمييز السعر والقيمة أمام المنافسين"
+  ],
+  "suggestedCampaigns": [
+    {
+      "title": "فكرة حملة إعلانية مقترحة",
+      "offer": "العرض الترويجي الذكي",
+      "targetAudience": "الفئة المستهدفة",
+      "callToAction": "الدعوة للشراء عبر واتساب"
+    }
+  ]
+}`;
+  }
+
+  for (const key of availableKeys) {
+    const ai = getGenAIClient(key);
+    for (const model of CASCADE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+            temperature: 0.7,
+          },
+        });
+
+        const raw = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        let clean = raw.trim();
+        if (clean.startsWith('```json')) {
+          clean = clean.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
+        } else if (clean.startsWith('```')) {
+          clean = clean.replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+        }
+        const parsed = JSON.parse(clean);
+        res.json(parsed);
+        return;
+      } catch (err: any) {
+        console.warn(`[Business Hub] Model ${model} failed:`, err?.message);
+      }
+    }
+  }
+
+  // Resilient fallback
+  if (mode === 'customer_reply') {
+    res.json({
+      replies: [
+        {
+          tone: 'ودي وسريع',
+          text: `أهلاً بك يا غالي في ${businessName}! يسعدنا خدمتك بكل سرور. بخصوص استفسارك، نحن جاهزون لتنفيذ طلبك بأفضل جودة وسعر منافس. للطلب أو الاستفسار السريع يسعدنا تواصلك معنا مباشرة! 🌟`
+        },
+        {
+          tone: 'احترافي ومقنع',
+          text: `مرحباً بك! في ${businessName} نحرص دائماً على تقديم أفضل تجربة لعملائنا الكرام مع ضمان الجودة وسرعة المتابعة. هل ترغب في تثبيت طلبك الآن لنجهزه لك على الفور؟ 📦✨`
+        }
+      ]
+    });
+  } else {
+    res.json({
+      swot: {
+        strengths: ['المرونة وسرعة التواصل المباشر مع العملاء', 'إمكانية تقديم عروض حصرية ومخصصة'],
+        weaknesses: ['الحاجة لتنظيم قاعدة بيانات العملاء ومتابعتهم دورياً'],
+        opportunities: ['التوسع عبر التجارة بالمحادثة على واتساب وتيلجرام', 'إطلاق عروض موسمية لجذب عملاء جدد'],
+        threats: ['المنافسة السعرية وتغير اهتمامات السوق السريع']
+      },
+      growthTips: [
+        'فعّل رسائل الترحيب والعروض الحصرية على واتساب لتسريع إغلاق المبيعات.',
+        'قدم ميزة إضافية أو توصيل مجاني عند وصول سلة المشتريات لمبلغ محدد.',
+        'انشر آراء وتقييمات العملاء الإيجابية (Social Proof) لبناء ثقة فورية مع الزبائن الجدد.'
+      ],
+      suggestedCampaigns: [
+        {
+          title: 'عرض الانطلاقة الخاص',
+          offer: 'خصم 20% على أول طلب + هدية مجانية',
+          targetAudience: 'العملاء الجدد والمهتمين بالخدمة',
+          callToAction: 'تواصل معنا على الواتساب للاستفادة من العرض قبل نفاد الكمية!'
+        }
+      ]
+    });
+  }
 });
 
 // Setup Vite middleware in dev or static files in production
