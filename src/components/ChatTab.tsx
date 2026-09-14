@@ -605,10 +605,11 @@ export const ChatTab: React.FC<ChatTabProps> = ({ user, language, onShowToast })
   };
 
   const sampleSuggestions = [
-    isAr ? '💻 اكتب لي تطبيق آلة حاسبة تفاعلية كامل بـ HTML و JS' : '💻 Complete interactive calculator app in HTML & JS',
-    isAr ? '🐍 كود بايثون متقدم لتحليل البيانات وحساب الإحصائيات' : '🐍 Advanced Python data analysis and statistics script',
-    isAr ? '⚛️ مكون React لبطاقة بروفايل حديثة مع تأثيرات حركية' : '⚛️ Modern React interactive profile card with animations',
-    isAr ? '🎨 كود صفحة هبوط فخمة مع أنيميشن وتصميم حديث' : '🎨 Elegant landing page code with CSS animations',
+    isAr ? '💻 اكتب تطبيق آلة حاسبة تفاعلية كامل بـ HTML و Tailwind و JS' : '💻 Complete interactive calculator app in HTML & JS',
+    isAr ? '🧠 حلل مسألة خوارزمية معقدة واشرح خطوات التفكير المنطقي خطوة بخطوة' : '🧠 Deep step-by-step analytical reasoning and algorithm proof',
+    isAr ? '🐍 كود بايثون متقدم مع أفضل ممارسات الإنتاج وتحليل الأداء' : '🐍 Advanced production Python script with performance profiling',
+    isAr ? '📊 خطة استراتيجية متكاملة لإطلاق مشروع تقني جديد ودراسة الجدوى' : '📊 Comprehensive business plan & strategy for a new tech venture',
+    isAr ? '🎨 كود صفحة هبوط فخمة مع أنيميشن وتصميم حديث وتجاوب كامل' : '🎨 Elegant landing page code with CSS animations & full responsiveness',
   ];
 
   return (

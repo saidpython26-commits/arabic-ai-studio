@@ -77,11 +77,17 @@ export const AppsTab: React.FC<AppsTabProps> = ({ user, language, onShowToast })
       ? 'لوحة مهام كانبان تفاعلية مع إمكانية سحب وإفلات البطاقات وتصنيف الألوان'
       : 'Interactive Kanban board with drag-and-drop cards and local storage',
     isAr
-      ? 'آلة حاسبة مالية للتمويل والقروض مع جداول أقساط ورسوم بيانية'
+      ? 'آلة حاسبة مالية ذكية للتمويل والميزانية مع جداول ورسوم بيانية'
       : 'Financial loan & mortgage calculator with repayment breakdown charts',
     isAr
-      ? 'مؤقت بومودورو أنيق مع قائمة مهام وإحصائيات تركيز يومية'
+      ? 'مؤقت بومودورو فخم مع قائمة مهام وحفظ إحصائيات التركيز محلياً'
       : 'Minimalist Pomodoro timer with task list and daily focus stats',
+    isAr
+      ? 'عداد تسبيح وأذكار تفاعلي مع خلفيات مهدئة وتأثيرات صوتية خفيفة'
+      : 'Digital tasbih and remembrance counter with soothing sound cues',
+    isAr
+      ? 'تطبيق تدوين ملاحظات تفاعلي سريع مع بحث وتصنيفات ملونة'
+      : 'Instant interactive notes app with search and colored categories',
   ];
 
   const handleGenerateApp = async (targetPrompt?: string) => {
