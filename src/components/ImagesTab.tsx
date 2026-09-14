@@ -13,10 +13,12 @@ import {
   Image as ImageIcon,
   WifiOff,
   RefreshCw,
+  Wand2,
 } from 'lucide-react';
 import { GeneratedImage, Language, UserProfile } from '../types';
 import { storageService } from '../services/storage';
 import { networkManager } from '../services/networkManager';
+import { expandPromptVisually } from '../services/imagePromptEnhancer';
 
 interface ImagesTabProps {
   user: UserProfile;
@@ -80,8 +82,9 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
     { id: 'واقعي', label: isAr ? 'واقعي' : 'Realistic', desc: '8K Ultra Photo' },
     { id: 'سينمائي', label: isAr ? 'سينمائي' : 'Cinematic', desc: 'Epic Lighting' },
     { id: 'رقمي', label: isAr ? 'رقمي' : 'Digital Art', desc: 'ArtStation Style' },
-    { id: 'كرتوني', label: isAr ? 'كرتوني' : 'Cartoon', desc: 'Vibrant & Clean' },
-    { id: 'ثلاثي الأبعاد', label: isAr ? 'ثلاثي الأبعاد' : '3D Render', desc: 'Octane / Blender' },
+    { id: 'أنمي', label: isAr ? 'أنمي' : 'Anime SOTA', desc: 'Makoto Shinkai' },
+    { id: 'كرتوني', label: isAr ? 'كرتوني' : 'Cartoon', desc: 'Pixar 3D' },
+    { id: 'ثلاثي الأبعاد', label: isAr ? 'ثلاثي الأبعاد' : '3D Render', desc: 'Octane Master' },
   ];
 
   const aspectRatios: Array<{ id: '1:1' | '16:9' | '9:16'; label: string; ratioStyle: string }> = [
@@ -152,9 +155,11 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
         let width = ratio === '16:9' ? 1280 : ratio === '9:16' ? 720 : 1024;
         let height = ratio === '16:9' ? 720 : ratio === '9:16' ? 1280 : 1024;
         const seed = Math.floor(Math.random() * 899999) + 100000;
-        const negative = encodeURIComponent('blurry, distorted, bad anatomy, lowres, watermark, ugly');
-        const stylePrefix = style !== 'photorealistic' ? `${style} style, ` : '';
-        finalEnhanced = `${stylePrefix}${p}, highly detailed, centered composition`;
+        const negative = encodeURIComponent(
+          'blurry, distorted, bad anatomy, bad hands, extra limbs, missing limbs, ugly, deformed, watermark, lowres, artifacts, chaotic clutter, duplicate, text'
+        );
+        // Automatically expand and enrich short Arabic/English prompts with visual depth
+        finalEnhanced = expandPromptVisually(p, style);
         finalImageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
           finalEnhanced
         )}?width=${width}&height=${height}&seed=${seed}&model=flux&nologo=true&negative=${negative}`;
@@ -293,9 +298,29 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
         {/* Prompt Input Box */}
         <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-3.5 space-y-3 shadow-md">
           <div>
-            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-              {isAr ? 'وصف الصورة (Prompt)' : 'Image Description'}
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-300 block">
+                {isAr ? 'وصف الصورة (يمكنك كتابة كلمة أو وصف قصير جداً)' : 'Image Description (Brief words supported)'}
+              </label>
+              {prompt.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const expanded = expandPromptVisually(prompt, selectedStyle);
+                    setPrompt(expanded);
+                    onShowToast(
+                      isAr ? 'تم توسيع الوصف البصري وتطويره ذاتياً بنجاح!' : 'Prompt auto-enhanced with rich details!',
+                      'success'
+                    );
+                  }}
+                  className="text-[11px] font-medium text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-2 py-0.5 rounded-lg flex items-center gap-1 transition cursor-pointer"
+                  title={isAr ? 'تطوير الوصف القصير تلقائياً بدقة قصوى' : 'Auto-expand prompt with AI'}
+                >
+                  <Wand2 className="w-3 h-3" />
+                  <span>{isAr ? 'تطوير الوصف ذاتياً' : 'Auto-Enhance'}</span>
+                </button>
+              )}
+            </div>
             <textarea
               id="image-prompt-input"
               rows={3}
@@ -303,8 +328,8 @@ export const ImagesTab: React.FC<ImagesTabProps> = ({ user, language, onShowToas
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={
                 isAr
-                  ? 'صف الصورة التي تتخيلها بالتفصيل (مثال: قلعة عربية عائمة في سماء بنفسجية...)'
-                  : 'Describe what you want to see in high detail...'
+                  ? 'اكتب أي وصف حتى لو كان كلمة واحدة (مثال: قط أسود، صقر ذهبي، مدينة مستقبلية... وسيطورها الذكاء الاصطناعي لأقصى حد)'
+                  : 'Type any idea even 1-2 words (e.g. golden falcon, cyberpunk oasis) - AI auto-expands it...'
               }
               className="w-full bg-slate-900/90 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-purple-500/70 resize-none transition-colors"
             />

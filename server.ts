@@ -576,11 +576,12 @@ app.post('/api/gemini/image', async (req, res) => {
 
     // Map style to visual enhancements
     const styleModifiers: Record<string, string> = {
-      'واقعي': 'photorealistic, ultra detailed 8k photography, cinematic volumetric lighting, sharp focus, 35mm lens, octane render',
-      'كرتوني': 'vibrant 3D animated cartoon, pixar disney style, expressive charming character, colorful, clean rendering',
-      'سينمائي': 'cinematic movie still, dramatic atmosphere, anamorphic lens, 35mm film photography, epic moody lighting',
-      'رقمي': 'digital art concept, trending on artstation, rich detailed illustration, fantasy atmosphere, artful shading',
-      'ثلاثي الأبعاد': '3D render, smooth textures, ray tracing, studio lighting, blender 3d artistic style, solid geometry',
+      'واقعي': 'photorealistic, ultra detailed 8k photography, cinematic volumetric lighting, sharp focus, 35mm lens, octane render, natural skin and textures',
+      'سينمائي': 'cinematic movie still, dramatic atmosphere, anamorphic 70mm lens, 35mm film photography, epic moody lighting, rim light',
+      'رقمي': 'digital art concept, trending on artstation, rich detailed illustration, fantasy atmosphere, artful shading, vivid palette',
+      'أنمي': 'modern aesthetic anime style, Makoto Shinkai aesthetic, vibrant sky, expressive eyes, crisp linework, gorgeous illumination',
+      'كرتوني': 'vibrant 3D animated cartoon, Pixar Disney animation style, expressive charming character, colorful, clean rendering',
+      'ثلاثي الأبعاد': '3D render, smooth textures, ray tracing, subsurface scattering, studio lighting, Blender Octane masterpiece, solid geometry',
     };
     const styleDesc = styleModifiers[style] || 'high quality digital artwork, sharp focus';
 
