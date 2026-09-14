@@ -182,24 +182,27 @@ export async function generateAppDirect(
 export async function generateSlidesDirect(
   apiKey: string,
   topic: string
-): Promise<{ topic: string; summary: string; slides: any[] }> {
+): Promise<{ topic: string; summary: string; slideDuration?: number; slides: any[] }> {
   const trimmedKey = apiKey.trim();
-  const sysPrompt = `أنت أستاذ ومحاضر عبقري في تبسيط أصعب العلوم والمفاهيم.
-المطلوب: شرح الموضوع التالي في عرض تقديمي تعليمي تفاعلي من 4 إلى 5 شرائح بصيغة JSON حصرية:
+  const sysPrompt = `أنت أستاذ ومحاضر عبقري في تبسيط أصعب العلوم والمفاهيم مع صوت إلقائي شائق وحركات بصرية سينمائية كالباوربوينت.
+المطلوب: شرح الموضوع التالي في عرض تقديمي تعليمي تفاعلي من 4 إلى 6 شرائح بصيغة JSON حصرية:
 "${topic}"
 
 الصيغة المطلوبة:
 {
   "topic": "${topic}",
   "summary": "ملخص شامل وممتع للدرس في سطرين",
+  "slideDuration": 12,
   "slides": [
     {
       "id": "s1",
       "title": "عنوان الشريحة",
       "badge": "الفكرة الجوهرية / آلية العمل / التشبيه الواقعي / أمثلة وتطبيقات / الخلاصة والاتقان",
+      "animationType": "fade-up",
       "content": ["نقطة 1", "نقطة 2", "نقطة 3"],
       "analogy": "تشبيه حسي واقعي يبسط الفكرة",
-      "keyTakeaway": "القاعدة الذهبية المستفادة"
+      "keyTakeaway": "القاعدة الذهبية المستفادة",
+      "speechScript": "نص الشرح الصوتي المسموع كاملاً للشريحة باللغة العربية الفصحى الواضحة والملهمة."
     }
   ]
 }`;

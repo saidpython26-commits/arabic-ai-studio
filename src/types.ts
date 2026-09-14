@@ -59,6 +59,9 @@ export interface SlideItem {
   content: string[];
   analogy?: string; // Real-world analogy simplifying the concept
   keyTakeaway: string;
+  speechScript?: string; // Voiceover script explained aloud
+  animationType?: 'fade-up' | 'zoom-in' | 'bounce-in' | 'slide-in' | 'flip' | 'typewriter';
+  durationSeconds?: number;
   codeSnippet?: string;
   bgColor?: string;
 }
@@ -68,6 +71,8 @@ export interface GeneratedPresentation {
   topic: string;
   summary: string;
   slides: SlideItem[];
+  slideDuration?: number; // Configurable duration in seconds (5s to 30s)
+  voiceEnabled?: boolean;
   createdAt: number;
 }
 

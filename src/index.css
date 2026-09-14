@@ -25,6 +25,101 @@
   background: rgba(16, 185, 129, 0.4);
 }
 
+/* PowerPoint Animation Keyframes */
+@keyframes pptFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pptZoomIn {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pptSlideRight {
+  from {
+    opacity: 0;
+    transform: translateX(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pptBounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  80% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pptFlipIn {
+  from {
+    opacity: 0;
+    transform: perspective(600px) rotateX(-30deg);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(600px) rotateX(0deg);
+  }
+}
+
+@keyframes pptPulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(245, 158, 11, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(245, 158, 11, 0.5);
+  }
+}
+
+.anim-ppt-fade-up {
+  animation: pptFadeUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-ppt-zoom-in {
+  animation: pptZoomIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-ppt-slide-in {
+  animation: pptSlideRight 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-ppt-bounce-in {
+  animation: pptBounceIn 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.anim-ppt-flip {
+  animation: pptFlipIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.anim-ppt-glow {
+  animation: pptPulseGlow 2.5s infinite ease-in-out;
+}
+
 /* Prevent elastic bounce issues and support mobile safe areas */
 html, body, #root {
   height: 100%;
