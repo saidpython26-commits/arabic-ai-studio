@@ -25,11 +25,26 @@ import {
   Wand2,
   RotateCcw,
   Zap,
+  MonitorPlay,
+  Palette,
+  LayoutTemplate,
+  Edit3,
+  Check,
+  Printer,
+  FileCode,
+  PanelLeft,
+  PanelLeftClose,
+  Plus,
 } from 'lucide-react';
 import { GeneratedPresentation, Language, SlideItem, UserProfile } from '../types';
 import { storageService } from '../services/storage';
 import { generateSlidesDirect } from '../services/geminiDirect';
 import { slideSpeechService } from '../services/slideSpeech';
+import { SlideThumbnailStrip } from './slides/SlideThumbnailStrip';
+import { SlideCanvas } from './slides/SlideCanvas';
+import { SpeakerNotesDrawer } from './slides/SpeakerNotesDrawer';
+import { SlideShowModal } from './slides/SlideShowModal';
+import { exportStandalonePresentationHtml, printPresentationSlides } from './slides/SlideExportBundle';
 
 interface SlidesTabProps {
   user: UserProfile;
@@ -57,12 +72,19 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
 
+  // Studio states: Themes, Modal presentation, Editing, Filmstrip
+  const [selectedTheme, setSelectedTheme] = useState<'dark-slate' | 'light-editorial' | 'royal-navy' | 'emerald'>('dark-slate');
+  const [showSlideShowModal, setShowSlideShowModal] = useState(false);
+  const [isEditingSlide, setIsEditingSlide] = useState(false);
+  const [showThumbnails, setShowThumbnails] = useState(true);
+
   // Audio Voiceover & Animation settings
   const [isVoiceMuted, setIsVoiceMuted] = useState(false);
   const [isSpeakingNow, setIsSpeakingNow] = useState(false);
-  // Slide duration: default 12s per slide (customizable 5s - 30s)
-  const [slideDurationSecs, setSlideDurationSecs] = useState<number>(12);
+  // Slide duration: customizable up to 150s per slide or total presentation up to 15 minutes!
+  const [slideDurationSecs, setSlideDurationSecs] = useState<number>(20);
   const [slideAnimKey, setSlideAnimKey] = useState(0); // Forces re-trigger of CSS animations on slide change
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
   // Step-by-step bullet appearance (PowerPoint click animation)
   const [revealedBulletsCount, setRevealedBulletsCount] = useState<number>(99);
@@ -105,29 +127,40 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
         }. القاعدة الذهبية: ${currentSlide.keyTakeaway}`;
 
       setIsSpeakingNow(true);
-      slideSpeechService.speakSlide(narrationText, {
-        lang: isAr ? 'ar-SA' : 'en-US',
-        rate: 0.92, // Clear educator cadence
-        onEnd: () => {
-          setIsSpeakingNow(false);
-          // If auto playing, advance after audio completes
-          if (isAutoPlaying && activePres) {
-            setTimeout(() => {
-              setCurrentSlideIndex((prev) => {
-                if (prev < activePres.slides.length - 1) {
-                  return prev + 1;
-                } else {
-                  setIsAutoPlaying(false);
-                  return prev;
-                }
-              });
-            }, 1200);
-          }
-        },
-      });
+      setIsLoadingAudio(true);
+      const customKey = storageService.getCustomApiKey();
+
+      slideSpeechService
+        .speakSlide(narrationText, {
+          audioUrl: currentSlide.audioUrl,
+          customApiKey: customKey,
+          lang: isAr ? 'ar-SA' : 'en-US',
+          rate: 0.92, // Clear educator cadence
+          onEnd: () => {
+            setIsSpeakingNow(false);
+            setIsLoadingAudio(false);
+            // If auto playing, advance after audio completes
+            if (isAutoPlaying && activePres) {
+              setTimeout(() => {
+                setCurrentSlideIndex((prev) => {
+                  if (prev < activePres.slides.length - 1) {
+                    return prev + 1;
+                  } else {
+                    setIsAutoPlaying(false);
+                    return prev;
+                  }
+                });
+              }, 1200);
+            }
+          },
+        })
+        .finally(() => {
+          setIsLoadingAudio(false);
+        });
     } else {
       slideSpeechService.stop();
       setIsSpeakingNow(false);
+      setIsLoadingAudio(false);
     }
 
     return () => {
@@ -173,11 +206,22 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
             currentSlide.analogy ? 'تشبيه لتقريب الفكرة: ' + currentSlide.analogy : ''
           }. القاعدة الذهبية: ${currentSlide.keyTakeaway}`;
         setIsSpeakingNow(true);
-        slideSpeechService.speakSlide(text, {
-          lang: isAr ? 'ar-SA' : 'en-US',
-          rate: 0.92,
-          onEnd: () => setIsSpeakingNow(false),
-        });
+        setIsLoadingAudio(true);
+        const customKey = storageService.getCustomApiKey();
+        slideSpeechService
+          .speakSlide(text, {
+            audioUrl: currentSlide.audioUrl,
+            customApiKey: customKey,
+            lang: isAr ? 'ar-SA' : 'en-US',
+            rate: 0.92,
+            onEnd: () => {
+              setIsSpeakingNow(false);
+              setIsLoadingAudio(false);
+            },
+          })
+          .finally(() => {
+            setIsLoadingAudio(false);
+          });
       }
     }
   };
@@ -257,19 +301,61 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
     }
   };
 
-  // High-res video recording with customizable pacing (e.g. 10s-15s per slide)
+  // High-res video recording with synchronized studio audio narration and customizable duration (up to 15 mins)
   const handleExportVideo = async () => {
     if (!activePres || !activePres.slides.length || isRecordingVideo) return;
 
     try {
       setIsRecordingVideo(true);
-      setRecordingProgress(5);
+      setRecordingProgress(2);
       onShowToast(
         isAr
-          ? '🎬 جاري تصوير وتوليد فيديو العرض التقديمي مع الحركات والمؤثرات...'
-          : 'Recording presentation video with full motion graphics...',
+          ? '🎬 جاري إعداد الصوت الفصيح المشكول وتسجيل فيديو العرض بالمدة الكاملة...'
+          : 'Preparing pristine Arabic voice & recording full-length video...',
         'info'
       );
+
+      const customKey = storageService.getCustomApiKey();
+      const slides = activePres.slides;
+      const totalSlides = slides.length;
+
+      // 1. Fetch & decode audio for each slide in parallel to guarantee audio sync
+      setRecordingProgress(5);
+      const audioBuffers: Array<{ duration: number; audioUrl: string } | null> = [];
+
+      for (let i = 0; i < totalSlides; i++) {
+        const slide = slides[i];
+        const script =
+          slide.speechScript ||
+          `${slide.title}. ${slide.content.join('. ')}. ${
+            slide.analogy ? 'تشبيه لتقريب الفكرة: ' + slide.analogy : ''
+          }. القاعدة الذهبية: ${slide.keyTakeaway}`;
+
+        let audioUri = slide.audioUrl || null;
+        if (!audioUri) {
+          try {
+            audioUri = await slideSpeechService.fetchStudioTTS(script, customKey);
+          } catch {
+            // fallback
+          }
+        }
+
+        if (audioUri) {
+          // calculate approximate duration or measure via Audio element
+          const estDuration = await new Promise<number>((res) => {
+            const tempAudio = new Audio(audioUri!);
+            tempAudio.onloadedmetadata = () => {
+              res(tempAudio.duration || slideDurationSecs);
+            };
+            tempAudio.onerror = () => res(slideDurationSecs);
+            setTimeout(() => res(slideDurationSecs), 1500);
+          });
+          audioBuffers.push({ duration: estDuration, audioUrl: audioUri });
+        } else {
+          audioBuffers.push(null);
+        }
+        setRecordingProgress(5 + Math.round(((i + 1) / totalSlides) * 15));
+      }
 
       const canvas = hiddenCanvasRef.current || document.createElement('canvas');
       canvas.width = 1280;
@@ -277,35 +363,67 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas context not available');
 
-      // Check MediaRecorder support
-      const stream = canvas.captureStream(30); // 30 FPS
-      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-        ? 'video/webm;codecs=vp9'
+      // Setup Web Audio Destination to combine audio narration into the video stream!
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioDest = audioCtx.createMediaStreamDestination();
+
+      const canvasStream = canvas.captureStream(30); // 30 FPS video stream
+      // Combine video track + mixed audio track
+      const combinedTracks = [
+        ...canvasStream.getVideoTracks(),
+        ...audioDest.stream.getAudioTracks(),
+      ];
+      const combinedStream = new MediaStream(combinedTracks);
+
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+        ? 'video/webm;codecs=vp9,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
         : MediaRecorder.isTypeSupported('video/webm')
         ? 'video/webm'
         : 'video/mp4';
 
-      const recorder = new MediaRecorder(stream, { mimeType });
+      const recorder = new MediaRecorder(combinedStream, { mimeType });
       const chunks: Blob[] = [];
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
 
-      recorder.start();
+      recorder.start(1000);
 
-      const slides = activePres.slides;
-      const totalSlides = slides.length;
-      // Duration per slide in video matches configured slideDurationSecs (e.g. 8s to 15s)
-      const secondsPerSlide = Math.max(6, Math.min(20, slideDurationSecs));
       const fps = 30;
+      const msPerFrame = 1000 / fps;
 
-      // Draw loop over slides with PowerPoint motion simulation
+      // Draw loop over slides with PowerPoint motion simulation & real-time paced frames
       for (let sIdx = 0; sIdx < totalSlides; sIdx++) {
         const slide = slides[sIdx];
-        const frames = secondsPerSlide * fps;
+        const audioInfo = audioBuffers[sIdx];
+
+        // Determine exact slide duration: at least the configured duration or speech duration + 3s
+        const calculatedSeconds = audioInfo?.duration
+          ? Math.max(slideDurationSecs, Math.ceil(audioInfo.duration + 2.5))
+          : slideDurationSecs;
+
+        const frames = Math.round(calculatedSeconds * fps);
+
+        // Play audio into the Web Audio destination for this slide
+        if (audioInfo?.audioUrl) {
+          try {
+            const slideAudio = new Audio(audioInfo.audioUrl);
+            const source = audioCtx.createMediaElementSource(slideAudio);
+            source.connect(audioDest);
+            // also connect to destination if needed (muted in video generator)
+            slideAudio.play().catch(() => {});
+          } catch {
+            // ignore audio routing error
+          }
+        }
+
+        const startFrameTime = performance.now();
 
         for (let f = 0; f < frames; f++) {
+          const frameTargetTime = startFrameTime + f * msPerFrame;
           const progressInSlide = f / frames;
           // Smooth entrance easing
           const enterT = Math.min(1, progressInSlide * 3.5);
@@ -319,7 +437,7 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           ctx.fillStyle = grad;
           ctx.fillRect(0, 0, 1280, 720);
 
-          // Subtle decorative moving ambient circles
+          // Decorative ambient circles
           const wobble = Math.sin(progressInSlide * Math.PI * 2) * 15;
           ctx.beginPath();
           ctx.arc(1100 + wobble, 140, 200, 0, Math.PI * 2);
@@ -364,7 +482,7 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           // 4. Slide Title with PowerPoint slide-in / zoom animation
           const titleOffsetY = (1 - easedEnter) * 25;
           ctx.fillStyle = '#f8fafc';
-          ctx.font = 'bold 38px "IBM Plex Sans Arabic", Cairo, sans-serif';
+          ctx.font = 'bold 36px "IBM Plex Sans Arabic", Cairo, sans-serif';
           ctx.textAlign = 'right';
           ctx.fillText(slide.title, 1200, 180 + titleOffsetY);
 
@@ -372,8 +490,7 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           ctx.font = '24px "IBM Plex Sans Arabic", Cairo, sans-serif';
           let bulletY = 240;
           for (let b = 0; b < slide.content.length; b++) {
-            // Stagger bullet appearance across the slide duration
-            const bulletTriggerTime = 0.15 + (b * 0.18);
+            const bulletTriggerTime = 0.12 + b * 0.15;
             const bulletProgress = Math.max(0, Math.min(1, (progressInSlide - bulletTriggerTime) * 4));
 
             if (bulletProgress > 0) {
@@ -392,7 +509,7 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           }
 
           // 6. Analogy Card (التشبيه الواقعي)
-          const analogyTriggerTime = 0.45;
+          const analogyTriggerTime = 0.42;
           if (slide.analogy && progressInSlide > analogyTriggerTime) {
             const aProgress = Math.min(1, (progressInSlide - analogyTriggerTime) * 3);
             ctx.save();
@@ -417,7 +534,7 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           }
 
           // 7. Key Takeaway (القاعدة الذهبية)
-          const keyTriggerTime = 0.7;
+          const keyTriggerTime = 0.68;
           if (slide.keyTakeaway && progressInSlide > keyTriggerTime) {
             const kProgress = Math.min(1, (progressInSlide - keyTriggerTime) * 3);
             ctx.save();
@@ -447,15 +564,18 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           ctx.fillStyle = '#f59e0b';
           ctx.fillRect(0, 712, 1280 * overallProgress, 8);
 
-          // Update progress state every 15 frames
-          if (f % 15 === 0) {
-            setRecordingProgress(Math.round(overallProgress * 95));
-            await new Promise((r) => setTimeout(r, 10));
+          // Pacing delay to keep video recording synchronized with real-time audio playback
+          const now = performance.now();
+          const delay = Math.max(2, frameTargetTime - now);
+          await new Promise((r) => setTimeout(r, delay));
+
+          if (f % 20 === 0) {
+            setRecordingProgress(20 + Math.round(overallProgress * 76));
           }
         }
       }
 
-      setRecordingProgress(98);
+      setRecordingProgress(97);
       recorder.stop();
 
       await new Promise<void>((resolve) => {
@@ -465,11 +585,12 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           const a = document.createElement('a');
           a.href = url;
           const cleanTitle = activePres.topic.replace(/[^\w\u0600-\u06FF]/g, '_').slice(0, 30);
-          a.download = `عرض_شرح_${cleanTitle}.webm`;
+          a.download = `شرح_فيديو_${cleanTitle}.webm`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
+          audioCtx.close().catch(() => {});
           resolve();
         };
       });
@@ -477,14 +598,14 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
       setRecordingProgress(100);
       onShowToast(
         isAr
-          ? '🎉 تم إنتاج وتنزيل فيديو الدرس بحركات الباوربوينت والمدة الكاملة بنجاح!'
-          : 'Full presentation video exported and downloaded successfully!',
+          ? '🎉 تم إنتاج وتنزيل فيديو الدرس مع الصوت الفصيح المشكول والحركات بنجاح!'
+          : 'Video exported with studio Arabic voice & animations!',
         'success'
       );
     } catch (err: any) {
       console.error('Video recording failed:', err);
       onShowToast(
-        isAr ? 'تعذر إتمام تصدير الفيديو على هذا المتصفح' : 'Video export failed on this device',
+        isAr ? 'فشل تصدير الفيديو: ' + (err?.message || '') : 'Failed to export presentation video',
         'error'
       );
     } finally {
@@ -517,6 +638,142 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
     const text = `🎓 شرح درس: ${activePres.topic}\n\n${activePres.summary}\n\nتطبيق FreeGen AI التعليمي`;
     const url = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
+  };
+
+  // Add a new blank slide
+  const handleAddSlide = () => {
+    if (!activePres) return;
+    const newSlide: SlideItem = {
+      id: `slide_${Date.now()}`,
+      title: isAr ? 'شريحة تعليمية جديدة' : 'New Explanatory Slide',
+      badge: isAr ? 'مفهوم رئيسي' : 'Key Concept',
+      layout: 'focus',
+      content: [
+        isAr ? 'نقطة توضيحية أولى تدعم فهم المفهوم' : 'Key explanatory point 1',
+        isAr ? 'نقطة توضيحية ثانية لتفصيل الفكرة' : 'Key explanatory point 2',
+      ],
+      analogy: isAr ? 'تشبيه واقعي لتقريب الفكرة للأذهان' : 'Real-world practical analogy',
+      keyTakeaway: isAr ? 'القاعدة الذهبية التي تلخص المفهوم' : 'Golden takeaway',
+      speechScript: isAr
+        ? 'هَذِهِ شَرِيحَةٌ جَدِيدَةٌ تَتَنَاوَلُ المَفْهُومَ بِأُسْلُوبٍ فَرِيدٍ وَمُبَسَّطٍ.'
+        : 'This is a new slide explaining this concept.',
+    };
+    const updatedSlides = [...activePres.slides, newSlide];
+    const updatedPres = { ...activePres, slides: updatedSlides };
+    setActivePres(updatedPres);
+    setCurrentSlideIndex(updatedSlides.length - 1);
+    storageService.savePresentation(user.uid, updatedPres);
+    onShowToast(isAr ? 'تمت إضافة شريحة جديدة' : 'New slide added', 'success');
+  };
+
+  // Duplicate slide
+  const handleDuplicateSlide = (index: number) => {
+    if (!activePres) return;
+    const target = activePres.slides[index];
+    if (!target) return;
+    const duplicated: SlideItem = {
+      ...target,
+      id: `slide_${Date.now()}`,
+      title: `${target.title} (${isAr ? 'نسخة' : 'Copy'})`,
+    };
+    const updatedSlides = [...activePres.slides];
+    updatedSlides.splice(index + 1, 0, duplicated);
+    const updatedPres = { ...activePres, slides: updatedSlides };
+    setActivePres(updatedPres);
+    setCurrentSlideIndex(index + 1);
+    storageService.savePresentation(user.uid, updatedPres);
+    onShowToast(isAr ? 'تم تكرار الشريحة' : 'Slide duplicated', 'success');
+  };
+
+  // Delete slide
+  const handleDeleteSlide = (index: number) => {
+    if (!activePres || activePres.slides.length <= 1) {
+      onShowToast(isAr ? 'لا يمكن حذف الشريحة الأخيرة' : 'Cannot delete the only slide', 'error');
+      return;
+    }
+    const updatedSlides = activePres.slides.filter((_, i) => i !== index);
+    const updatedPres = { ...activePres, slides: updatedSlides };
+    setActivePres(updatedPres);
+    setCurrentSlideIndex((prev) => Math.min(prev, updatedSlides.length - 1));
+    storageService.savePresentation(user.uid, updatedPres);
+    onShowToast(isAr ? 'تم حذف الشريحة' : 'Slide deleted', 'info');
+  };
+
+  // Move slide up/down
+  const handleMoveSlide = (index: number, direction: 'up' | 'down') => {
+    if (!activePres) return;
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= activePres.slides.length) return;
+    const updatedSlides = [...activePres.slides];
+    const [removed] = updatedSlides.splice(index, 1);
+    updatedSlides.splice(targetIdx, 0, removed);
+    const updatedPres = { ...activePres, slides: updatedSlides };
+    setActivePres(updatedPres);
+    setCurrentSlideIndex(targetIdx);
+    storageService.savePresentation(user.uid, updatedPres);
+  };
+
+  // Update slide in-place
+  const handleUpdateSlide = (updatedSlide: SlideItem) => {
+    if (!activePres) return;
+    const updatedSlides = activePres.slides.map((s, idx) =>
+      idx === currentSlideIndex ? updatedSlide : s
+    );
+    const updatedPres = { ...activePres, slides: updatedSlides };
+    setActivePres(updatedPres);
+    storageService.savePresentation(user.uid, updatedPres);
+  };
+
+  // Change layout
+  const handleChangeLayout = (layout: 'hero' | 'two-column' | 'three-card' | 'quote' | 'focus') => {
+    if (!currentSlide) return;
+    handleUpdateSlide({ ...currentSlide, layout });
+    onShowToast(isAr ? `تم تغيير التخطيط إلى: ${layout}` : `Layout changed to ${layout}`, 'info');
+  };
+
+  // Export standalone HTML bundle
+  const handleExportHtml = () => {
+    if (!activePres) return;
+    exportStandalonePresentationHtml(activePres, selectedTheme);
+    onShowToast(isAr ? 'تم تنزيل العرض كصفحة ويب تفاعلية مستقلة!' : 'Exported as standalone interactive HTML!', 'success');
+  };
+
+  // Print slides / export PDF
+  const handlePrintSlides = () => {
+    if (!activePres) return;
+    onShowToast(isAr ? 'جاري فتح نافذة الطباعة وحفظ PDF...' : 'Opening print & PDF dialog...', 'info');
+    printPresentationSlides();
+  };
+
+  // Shared speaker speech trigger
+  const handleSpeakSlideText = (text?: string) => {
+    const targetText =
+      text ||
+      (currentSlide
+        ? currentSlide.speechScript ||
+          `${currentSlide.title}. ${currentSlide.content.join('. ')}. ${
+            currentSlide.analogy ? 'تشبيه لتقريب الفكرة: ' + currentSlide.analogy : ''
+          }. القاعدة الذهبية: ${currentSlide.keyTakeaway}`
+        : '');
+    if (!targetText) return;
+
+    setIsSpeakingNow(true);
+    setIsLoadingAudio(true);
+    const customKey = storageService.getCustomApiKey();
+    slideSpeechService
+      .speakSlide(targetText, {
+        audioUrl: currentSlide?.audioUrl,
+        customApiKey: customKey,
+        lang: isAr ? 'ar-SA' : 'en-US',
+        rate: 0.92,
+        onEnd: () => {
+          setIsSpeakingNow(false);
+          setIsLoadingAudio(false);
+        },
+      })
+      .finally(() => {
+        setIsLoadingAudio(false);
+      });
   };
 
   // Determine current active animation CSS class
@@ -656,39 +913,159 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
           </div>
         )}
 
-        {/* Active Presentation Player */}
+        {/* Active Presentation Studio */}
         {activePres && currentSlide ? (
-          <div className="space-y-3">
-            {/* Control & Customization Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 text-xs">
+          <div className="space-y-4">
+            {/* Control & Studio Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-800/90 p-3 rounded-2xl border border-slate-700/80 text-xs shadow-lg">
+              {/* Left group: Topic, Slide Count & Filmstrip toggle */}
               <div className="flex items-center gap-2">
-                <span className="font-bold text-amber-400 truncate max-w-[150px] sm:max-w-[220px]">
+                <button
+                  onClick={() => setShowThumbnails(!showThumbnails)}
+                  className={`p-1.5 rounded-xl border transition cursor-pointer ${
+                    showThumbnails
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+                  }`}
+                  title={isAr ? 'إظهار / إخفاء شريط الشرائح الجانبي' : 'Toggle Filmstrip'}
+                >
+                  {showThumbnails ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+                </button>
+
+                <span className="font-bold text-amber-400 truncate max-w-[140px] sm:max-w-[200px]">
                   {activePres.topic}
                 </span>
-                <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-700">
+                <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-700 font-mono">
                   {currentSlideIndex + 1} / {activePres.slides.length}
                 </span>
               </div>
 
-              {/* Toolbar Controls: Voice, Duration, Animations, Video Export */}
+              {/* Center/Right Toolbar controls */}
               <div className="flex items-center flex-wrap gap-1.5">
-                {/* Voice narration toggle */}
+                {/* Presentation Fullscreen Mode with Laser pointer & timer */}
+                <button
+                  onClick={() => setShowSlideShowModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 transition-all cursor-pointer active:scale-95"
+                  title={isAr ? 'بدء العرض التقديمي المباشر مع مؤشر الليزر والتحكم الاحترافي' : 'Start SlideShow with Laser & HUD'}
+                >
+                  <MonitorPlay className="w-4 h-4" />
+                  <span>{isAr ? 'عرض ملء الشاشة' : 'Present'}</span>
+                </button>
+
+                {/* Edit Slide Mode Toggle */}
+                <button
+                  onClick={() => {
+                    const next = !isEditingSlide;
+                    setIsEditingSlide(next);
+                    if (next) {
+                      onShowToast(isAr ? 'وضع التعديل مفعل: يمكنك تعديل النصوص مباشرة في الشريحة' : 'Edit mode enabled', 'info');
+                    } else {
+                      onShowToast(isAr ? 'تم حفظ تعديلات الشريحة' : 'Changes saved', 'success');
+                    }
+                  }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                    isEditingSlide
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:text-white'
+                  }`}
+                  title={isAr ? 'تعديل نصوص وتصميم الشريحة' : 'Edit Slide Content'}
+                >
+                  {isEditingSlide ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Edit3 className="w-3.5 h-3.5 text-amber-400" />}
+                  <span>{isEditingSlide ? (isAr ? 'تم التعديل' : 'Done') : (isAr ? 'تعديل' : 'Edit')}</span>
+                </button>
+
+                {/* Theme Selector */}
+                <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-[11px]">
+                  <Palette className="w-3 h-3 text-amber-400" />
+                  <select
+                    value={selectedTheme}
+                    onChange={(e) => {
+                      const t = e.target.value as any;
+                      setSelectedTheme(t);
+                      if (activePres) {
+                        const updated = { ...activePres, theme: t };
+                        setActivePres(updated);
+                        storageService.savePresentation(user.uid, updated);
+                      }
+                      onShowToast(isAr ? 'تم تغيير مظهر العرض التقديمي' : 'Theme updated', 'info');
+                    }}
+                    className="bg-transparent text-slate-200 outline-none cursor-pointer text-[10px]"
+                    title={isAr ? 'نمط الألوان والثيم' : 'Presentation theme'}
+                  >
+                    <option value="dark-slate" className="bg-slate-900">{isAr ? 'أسود فاحم (Dark Slate)' : 'Dark Slate'}</option>
+                    <option value="light-editorial" className="bg-slate-900">{isAr ? 'ورقي فاتح (Editorial)' : 'Editorial Light'}</option>
+                    <option value="royal-navy" className="bg-slate-900">{isAr ? 'أزرق ملكي (Royal Navy)' : 'Royal Navy'}</option>
+                    <option value="emerald" className="bg-slate-900">{isAr ? 'زمردي أكاديمي (Emerald)' : 'Emerald'}</option>
+                  </select>
+                </div>
+
+                {/* Layout Selector */}
+                <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-[11px]">
+                  <LayoutTemplate className="w-3 h-3 text-sky-400" />
+                  <select
+                    value={currentSlide.layout || 'focus'}
+                    onChange={(e) => handleChangeLayout(e.target.value as any)}
+                    className="bg-transparent text-slate-200 outline-none cursor-pointer text-[10px]"
+                    title={isAr ? 'تخطيط عناصر الشريحة' : 'Slide Layout'}
+                  >
+                    <option value="focus" className="bg-slate-900">{isAr ? 'تخطيط مركّز (Focus)' : 'Focus'}</option>
+                    <option value="two-column" className="bg-slate-900">{isAr ? 'عمودان متوازيان (2-Col)' : '2 Columns'}</option>
+                    <option value="three-card" className="bg-slate-900">{isAr ? 'ثلاث بطاقات (3-Card)' : '3 Cards'}</option>
+                    <option value="hero" className="bg-slate-900">{isAr ? 'عنوان عريض (Hero)' : 'Hero'}</option>
+                    <option value="quote" className="bg-slate-900">{isAr ? 'اقتباس بارز (Quote)' : 'Quote'}</option>
+                  </select>
+                </div>
+
+                {/* Voice Narration toggle */}
                 <button
                   onClick={handleToggleVoice}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
-                    isSpeakingNow
+                    isLoadingAudio
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                      : isSpeakingNow
                       ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse'
                       : isVoiceMuted
                       ? 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
                       : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                   }`}
-                  title={isAr ? 'تشغيل / إيقاف الشرح الصوتي' : 'Toggle Voice Narration'}
+                  title={isAr ? 'تشغيل / إيقاف الشرح الصوتي الذكي' : 'Toggle AI Voice Narration'}
                 >
-                  {isVoiceMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-                  <span>{isSpeakingNow ? (isAr ? 'يشرح الآن...' : 'Speaking...') : isVoiceMuted ? (isAr ? 'الصوت مكتوم' : 'Muted') : (isAr ? 'الصوت مفعل' : 'Voice ON')}</span>
+                  {isLoadingAudio ? (
+                    <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  ) : isVoiceMuted ? (
+                    <VolumeX className="w-3.5 h-3.5" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isLoadingAudio
+                      ? isAr
+                        ? 'توليد الصوت...'
+                        : 'Audio...'
+                      : isSpeakingNow
+                      ? isAr
+                        ? 'يشرح...'
+                        : 'Speaking...'
+                      : isVoiceMuted
+                      ? isAr
+                        ? 'مكتوم'
+                        : 'Muted'
+                      : isAr
+                      ? 'صوت فصيح'
+                      : 'Voice ON'}
+                  </span>
                 </button>
 
-                {/* Animation Type Switcher (PowerPoint styles) */}
+                {/* Replay audio */}
+                <button
+                  onClick={() => handleSpeakSlideText()}
+                  className="flex items-center gap-1 p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-400 cursor-pointer"
+                  title={isAr ? 'إعادة قراءة الشرح بالصوت الفصيح' : 'Replay audio narration'}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Animation Type Switcher */}
                 <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-[11px]">
                   <Wand2 className="w-3 h-3 text-amber-400" />
                   <select
@@ -701,26 +1078,28 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
                     className="bg-transparent text-slate-200 outline-none cursor-pointer text-[10px]"
                     title={isAr ? 'نمط حركة الباوربوينت' : 'PPT Transition style'}
                   >
-                    <option value="fade-up" className="bg-slate-900">{isAr ? 'حركة صعود (Fade Up)' : 'Fade Up'}</option>
-                    <option value="zoom-in" className="bg-slate-900">{isAr ? 'حركة تقريب (Zoom In)' : 'Zoom In'}</option>
-                    <option value="bounce-in" className="bg-slate-900">{isAr ? 'حركة ارتداد (Bounce In)' : 'Bounce In'}</option>
-                    <option value="slide-in" className="bg-slate-900">{isAr ? 'حركة انزلاق (Slide In)' : 'Slide In'}</option>
-                    <option value="flip" className="bg-slate-900">{isAr ? 'حركة تقليب 3D (Flip)' : '3D Flip'}</option>
+                    <option value="fade-up" className="bg-slate-900">{isAr ? 'صعود (Fade Up)' : 'Fade Up'}</option>
+                    <option value="zoom-in" className="bg-slate-900">{isAr ? 'تقريب (Zoom In)' : 'Zoom In'}</option>
+                    <option value="bounce-in" className="bg-slate-900">{isAr ? 'ارتداد (Bounce)' : 'Bounce'}</option>
+                    <option value="slide-in" className="bg-slate-900">{isAr ? 'انزلاق (Slide In)' : 'Slide In'}</option>
+                    <option value="flip" className="bg-slate-900">{isAr ? 'تقليب 3D (Flip)' : '3D Flip'}</option>
                   </select>
                 </div>
 
                 {/* Slide Duration Configurator */}
-                <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-[11px]" title={isAr ? 'مدة عرض الشريحة بالثواني' : 'Slide duration'}>
+                <div className="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700 text-[11px]" title={isAr ? 'مدة عرض كل شريحة بالثواني' : 'Slide duration'}>
                   <Clock className="w-3 h-3 text-emerald-400" />
                   <select
                     value={slideDurationSecs}
                     onChange={(e) => setSlideDurationSecs(Number(e.target.value))}
                     className="bg-transparent text-slate-200 outline-none cursor-pointer text-[10px]"
                   >
-                    <option value={8} className="bg-slate-900">8s ({isAr ? 'سريع' : 'Fast'})</option>
-                    <option value={12} className="bg-slate-900">12s ({isAr ? 'متوسط' : 'Normal'})</option>
-                    <option value={18} className="bg-slate-900">18s ({isAr ? 'شرح طويل' : 'Deep'})</option>
-                    <option value={25} className="bg-slate-900">25s ({isAr ? 'مفصل جداً' : 'Very Long'})</option>
+                    <option value={10} className="bg-slate-900">10s ({isAr ? 'سريع' : 'Fast'})</option>
+                    <option value={15} className="bg-slate-900">15s ({isAr ? 'متوسط' : 'Medium'})</option>
+                    <option value={25} className="bg-slate-900">25s ({isAr ? 'شرح طويل' : 'Long'})</option>
+                    <option value={45} className="bg-slate-900">45s ({isAr ? 'مفصل 3-5د' : 'Deep 3-5m'})</option>
+                    <option value={90} className="bg-slate-900">90s ({isAr ? 'محاضرة 7-10د' : 'Lecture 7-10m'})</option>
+                    <option value={150} className="bg-slate-900">150s ({isAr ? 'شامل حتى 15د' : 'Full up to 15m'})</option>
                   </select>
                 </div>
 
@@ -748,10 +1127,28 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
                   onClick={handleExportVideo}
                   disabled={isRecordingVideo}
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold text-[11px] shadow-sm transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
-                  title={isAr ? 'تسجيل كفيديو مع الحركات لليوتيوب' : 'Export Animated Video for YouTube'}
+                  title={isAr ? 'تسجيل كفيديو عالي الدقة مع الحركات والصوت' : 'Export Full Synced Video'}
                 >
                   <Video className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{isAr ? 'تصدير فيديو' : 'Export Video'}</span>
+                  <span className="hidden sm:inline">{isAr ? 'فيديو' : 'Video'}</span>
+                </button>
+
+                {/* Standalone Interactive HTML Export */}
+                <button
+                  onClick={handleExportHtml}
+                  className="flex items-center gap-1 p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-700 transition cursor-pointer"
+                  title={isAr ? 'تصدير كملف HTML تفاعلي مستقل يعمل بدون إنترنت' : 'Export Standalone HTML'}
+                >
+                  <FileCode className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Print / PDF Export */}
+                <button
+                  onClick={handlePrintSlides}
+                  className="flex items-center gap-1 p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-purple-400 border border-slate-700 transition cursor-pointer"
+                  title={isAr ? 'طباعة أو حفظ بصيغة PDF' : 'Print or Export PDF'}
+                >
+                  <Printer className="w-3.5 h-3.5" />
                 </button>
 
                 {/* WhatsApp Share */}
@@ -774,164 +1171,110 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
               </div>
             </div>
 
-            {/* Slide Stage Card with PowerPoint Animations */}
-            <div
-              key={`${currentSlideIndex}_${slideAnimKey}`}
-              className={`rounded-3xl border border-slate-700/80 bg-gradient-to-b from-slate-800/95 to-slate-900 p-6 shadow-2xl space-y-4 transition-all duration-300 relative overflow-hidden anim-ppt-glow ${animClass} ${
-                isFullscreen ? 'fixed inset-0 z-50 rounded-none p-8 flex flex-col justify-between overflow-y-auto' : ''
-              }`}
-            >
-              {/* Background ambient lighting */}
-              <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+            {/* Studio Workspace: Filmstrip Sidebar + Canvas Stage + Speaker Notes */}
+            <div className="flex flex-col lg:flex-row gap-4 items-start">
+              {/* Filmstrip Left Panel */}
+              {showThumbnails && (
+                <div className="w-full lg:w-56 shrink-0">
+                  <SlideThumbnailStrip
+                    slides={activePres.slides}
+                    currentIndex={currentSlideIndex}
+                    onSelectSlide={(idx) => {
+                      slideSpeechService.stop();
+                      setCurrentSlideIndex(idx);
+                    }}
+                    onAddSlide={handleAddSlide}
+                    onDuplicateSlide={handleDuplicateSlide}
+                    onDeleteSlide={handleDeleteSlide}
+                    onMoveSlide={handleMoveSlide}
+                    isAr={isAr}
+                    theme={selectedTheme}
+                  />
+                </div>
+              )}
 
-              {/* Slide Header */}
-              <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 relative z-10">
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-bold tracking-wide">
-                    {currentSlide.badge || (isAr ? 'مفهوم جوهري' : 'Core Concept')}
-                  </span>
-                  <span className="text-[10px] text-slate-400">
-                    {isAr ? `الشريحة ${currentSlideIndex + 1} من ${activePres.slides.length}` : `Slide ${currentSlideIndex + 1}`}
-                  </span>
+              {/* Main Presentation Stage */}
+              <div className="flex-1 w-full space-y-3 min-w-0">
+                {/* 16:9 Canvas Stage */}
+                <div key={`${currentSlideIndex}_${slideAnimKey}`} className="w-full">
+                  <SlideCanvas
+                    slide={currentSlide}
+                    slideIndex={currentSlideIndex}
+                    totalSlides={activePres.slides.length}
+                    theme={selectedTheme}
+                    isEditing={isEditingSlide}
+                    onUpdateSlide={handleUpdateSlide}
+                    isAr={isAr}
+                    animClass={animClass}
+                    presentationTopic={activePres.topic}
+                  />
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {/* Replay audio speech */}
+                {/* Quick Navigation Control Bar */}
+                <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-800/80 border border-slate-700/70 text-xs">
                   <button
                     onClick={() => {
-                      if (currentSlide) {
-                        const text =
-                          currentSlide.speechScript ||
-                          `${currentSlide.title}. ${currentSlide.content.join('. ')}. ${
-                            currentSlide.analogy ? 'تشبيه لتقريب الفكرة: ' + currentSlide.analogy : ''
-                          }. القاعدة الذهبية: ${currentSlide.keyTakeaway}`;
-                        setIsSpeakingNow(true);
-                        slideSpeechService.speakSlide(text, {
-                          lang: isAr ? 'ar-SA' : 'en-US',
-                          rate: 0.92,
-                          onEnd: () => setIsSpeakingNow(false),
-                        });
-                        onShowToast(isAr ? 'إعادة الشرح الصوتي للشريحة' : 'Replaying slide audio', 'info');
-                      }
+                      slideSpeechService.stop();
+                      setCurrentSlideIndex((prev) => Math.max(0, prev - 1));
                     }}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-[10px] cursor-pointer"
-                    title={isAr ? 'إعادة قراءة الشرح' : 'Replay audio'}
+                    disabled={currentSlideIndex === 0}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-700 text-slate-300 disabled:opacity-40 font-medium border border-slate-700 cursor-pointer transition-colors"
                   >
-                    <RotateCcw className="w-3 h-3 text-amber-400" />
-                    <span>{isAr ? 'إعادة الصوت' : 'Replay'}</span>
+                    <ChevronRight className="w-4 h-4" />
+                    <span>{isAr ? 'السابق' : 'Previous'}</span>
                   </button>
 
-                  <button
-                    onClick={() => setIsFullscreen(!isFullscreen)}
-                    className="p-1.5 text-slate-400 hover:text-slate-200 transition cursor-pointer"
-                  >
-                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Title with PPT entrance */}
-              <h2 className="text-lg sm:text-2xl font-black text-white leading-relaxed tracking-tight relative z-10">
-                {currentSlide.title}
-              </h2>
-
-              {/* Bullet Points with Staggered PowerPoint Animation */}
-              <div className="space-y-3 relative z-10">
-                {currentSlide.content.map((pt, i) => (
-                  <div
-                    key={i}
-                    style={{ animationDelay: `${i * 180}ms` }}
-                    className="flex items-start gap-3 text-xs sm:text-sm text-slate-200 leading-relaxed bg-slate-900/40 p-2.5 rounded-xl border border-slate-800 hover:border-amber-500/30 transition-colors anim-ppt-slide-in"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    <span className="font-medium">{pt}</span>
+                  <div className="flex gap-1.5 items-center max-w-[200px] sm:max-w-xs overflow-x-auto py-1 px-2">
+                    {activePres.slides.map((_, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          slideSpeechService.stop();
+                          setCurrentSlideIndex(idx);
+                        }}
+                        className={`h-2.5 rounded-full transition-all cursor-pointer shrink-0 ${
+                          currentSlideIndex === idx
+                            ? 'w-7 bg-amber-400 shadow-sm shadow-amber-500/50'
+                            : 'w-2.5 bg-slate-700 hover:bg-slate-600'
+                        }`}
+                        title={`${isAr ? 'شريحة' : 'Slide'} ${idx + 1}`}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Real World Analogy Card */}
-              {currentSlide.analogy && (
-                <div className="p-3.5 rounded-2xl bg-amber-950/20 border border-amber-500/30 text-xs space-y-1.5 relative z-10 anim-ppt-bounce-in">
-                  <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                    <Lightbulb className="w-4 h-4 text-amber-400" />
-                    <span className="text-xs sm:text-sm">{isAr ? '💡 تشبيه واقعي لتقريب الفكرة للأذهان:' : 'Real-world analogy:'}</span>
-                  </div>
-                  <p className="text-slate-300 leading-relaxed text-xs sm:text-sm font-normal">
-                    {currentSlide.analogy}
-                  </p>
-                </div>
-              )}
-
-              {/* Spoken Narration Box (Live Subtitle / Script) */}
-              {currentSlide.speechScript && (
-                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-700/60 text-slate-300 text-xs space-y-1 relative z-10">
-                  <div className="flex items-center justify-between text-slate-400 text-[10px]">
-                    <span className="flex items-center gap-1">
-                      <Volume2 className={`w-3 h-3 ${isSpeakingNow ? 'text-emerald-400 animate-bounce' : 'text-slate-400'}`} />
-                      <span>{isAr ? 'نص الشرح الصوتي المسموع:' : 'Spoken Voice Script:'}</span>
-                    </span>
-                    {isSpeakingNow && (
-                      <span className="text-emerald-400 text-[10px] font-bold animate-pulse">
-                        {isAr ? 'جاري القراءة بصوت واضح...' : 'Playing audio...'}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-slate-200 text-xs leading-relaxed italic">
-                    "{currentSlide.speechScript}"
-                  </p>
-                </div>
-              )}
-
-              {/* Golden Takeaway */}
-              {currentSlide.keyTakeaway && (
-                <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs sm:text-sm font-bold flex items-center gap-2 relative z-10 shadow-sm">
-                  <span className="text-base">⭐</span>
-                  <span>{currentSlide.keyTakeaway}</span>
-                </div>
-              )}
-
-              {/* Slide Navigation Controls */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 relative z-10">
-                <button
-                  onClick={() => {
-                    slideSpeechService.stop();
-                    setCurrentSlideIndex((prev) => Math.max(0, prev - 1));
-                  }}
-                  disabled={currentSlideIndex === 0}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 text-xs font-medium border border-slate-700 cursor-pointer transition-colors"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                  <span>{isAr ? 'السابق' : 'Previous'}</span>
-                </button>
-
-                <div className="flex gap-1.5 items-center">
-                  {activePres.slides.map((_, idx) => (
+                  <div className="flex items-center gap-2">
                     <button
-                      key={idx}
+                      onClick={handleAddSlide}
+                      className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-700 text-amber-400 border border-slate-700 cursor-pointer text-xs"
+                      title={isAr ? 'إضافة شريحة جديدة' : 'Add New Slide'}
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isAr ? 'إضافة شريحة' : 'Add'}</span>
+                    </button>
+
+                    <button
                       onClick={() => {
                         slideSpeechService.stop();
-                        setCurrentSlideIndex(idx);
+                        setCurrentSlideIndex((prev) => Math.min(activePres.slides.length - 1, prev + 1));
                       }}
-                      className={`h-2.5 rounded-full transition-all cursor-pointer ${
-                        currentSlideIndex === idx ? 'w-7 bg-amber-400 shadow-sm shadow-amber-500/50' : 'w-2.5 bg-slate-700 hover:bg-slate-600'
-                      }`}
-                      title={`${isAr ? 'شريحة' : 'Slide'} ${idx + 1}`}
-                    />
-                  ))}
+                      disabled={currentSlideIndex === activePres.slides.length - 1}
+                      className="flex items-center gap-1 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 disabled:opacity-40 font-bold cursor-pointer transition-colors shadow-sm"
+                    >
+                      <span>{isAr ? 'التالي' : 'Next'}</span>
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    slideSpeechService.stop();
-                    setCurrentSlideIndex((prev) => Math.min(activePres.slides.length - 1, prev + 1));
-                  }}
-                  disabled={currentSlideIndex === activePres.slides.length - 1}
-                  className="flex items-center gap-1 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 disabled:opacity-40 text-xs font-bold cursor-pointer transition-colors shadow-sm"
-                >
-                  <span>{isAr ? 'التالي' : 'Next'}</span>
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
+                {/* Speaker Notes Drawer (With Tashkeel Vocalized Script) */}
+                <SpeakerNotesDrawer
+                  slide={currentSlide}
+                  onUpdateSlide={handleUpdateSlide}
+                  onSpeak={(text) => handleSpeakSlideText(text)}
+                  isSpeaking={isSpeakingNow}
+                  isLoadingAudio={isLoadingAudio}
+                  isAr={isAr}
+                />
               </div>
             </div>
           </div>
@@ -1005,6 +1348,27 @@ export const SlidesTab: React.FC<SlidesTabProps> = ({ user, language, onShowToas
             </div>
           </div>
         </div>
+      )}
+
+      {/* Full-Screen Presentation Mode Modal with Laser Pointer and Speaker HUD */}
+      {showSlideShowModal && activePres && (
+        <SlideShowModal
+          slides={activePres.slides}
+          initialIndex={currentSlideIndex}
+          onClose={() => {
+            slideSpeechService.stop();
+            setShowSlideShowModal(false);
+          }}
+          theme={selectedTheme}
+          isAr={isAr}
+          topic={activePres.topic}
+          onSpeak={(text) => handleSpeakSlideText(text)}
+          onStopSpeak={() => {
+            slideSpeechService.stop();
+            setIsSpeakingNow(false);
+          }}
+          isSpeaking={isSpeakingNow}
+        />
       )}
     </div>
   );

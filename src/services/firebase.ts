@@ -9,9 +9,9 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Silence verbose Firebase warnings in production console
+// Silence internal Firebase connection/offline warnings in console
 try {
-  setLogLevel('error');
+  setLogLevel('silent');
 } catch {
   // Ignored
 }
@@ -20,7 +20,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Initialize Firestore with robust local caching and multi-tab sync
+// Initialize Firestore with robust local caching, iframe long-polling and multi-tab sync
 function getInitializedDb() {
   const dbId = firebaseConfig.firestoreDatabaseId || '(default)';
   try {
@@ -30,14 +30,25 @@ function getInitializedDb() {
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager(),
         }),
+        experimentalAutoDetectLongPolling: true,
       },
       dbId
     );
   } catch {
-    // If already initialized or unsupported, return existing instance
-    return dbId && dbId !== '(default)'
-      ? getFirestore(app, dbId)
-      : getFirestore(app);
+    try {
+      return initializeFirestore(
+        app,
+        {
+          experimentalAutoDetectLongPolling: true,
+        },
+        dbId
+      );
+    } catch {
+      // If already initialized or unsupported, return existing instance
+      return dbId && dbId !== '(default)'
+        ? getFirestore(app, dbId)
+        : getFirestore(app);
+    }
   }
 }
 

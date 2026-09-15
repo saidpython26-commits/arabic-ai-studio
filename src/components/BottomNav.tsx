@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Image, Code2, Presentation, Briefcase, Settings, Download } from 'lucide-react';
+import { MessageSquare, GraduationCap, Image, Code2, Presentation, Briefcase, Settings, Download } from 'lucide-react';
 import { ActiveTab, Language } from '../types';
 
 interface BottomNavProps {
@@ -22,6 +22,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       id: 'chat',
       label: isAr ? 'الدردشة' : 'Chat',
       icon: <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />,
+    },
+    {
+      id: 'tutor',
+      label: isAr ? 'الأستاذ' : 'Tutor',
+      icon: <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5" />,
     },
     {
       id: 'images',

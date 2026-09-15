@@ -5,6 +5,7 @@ import { storageService } from './services/storage';
 import { LoginScreen } from './components/LoginScreen';
 import { BottomNav } from './components/BottomNav';
 import { ChatTab } from './components/ChatTab';
+import { TutorTab } from './components/TutorTab';
 import { ImagesTab } from './components/ImagesTab';
 import { AppsTab } from './components/AppsTab';
 import { SlidesTab } from './components/SlidesTab';
@@ -160,6 +161,14 @@ export default function App() {
             <main className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative">
               {activeTab === 'chat' && (
                 <ChatTab
+                  user={currentUser}
+                  language={settings.language}
+                  onShowToast={showToast}
+                />
+              )}
+
+              {activeTab === 'tutor' && (
+                <TutorTab
                   user={currentUser}
                   language={settings.language}
                   onShowToast={showToast}

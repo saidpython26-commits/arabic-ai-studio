@@ -15,6 +15,38 @@ const PORT = 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
+// Explicit Service Worker endpoint with standard headers
+app.get(['/sw.js', '/public/sw.js'], (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.status(200).send(
+    '// FreeGen AI Service Worker cleanup & runner\n' +
+    'self.addEventListener("install", function() { self.skipWaiting(); });\n' +
+    'self.addEventListener("activate", function(event) {\n' +
+    '  event.waitUntil(\n' +
+    '    self.registration.unregister().then(function() {\n' +
+    '      return self.clients.matchAll();\n' +
+    '    })\n' +
+    '  );\n' +
+    '});\n'
+  );
+});
+
+// Explicit Web App Manifest endpoint
+app.get(['/manifest.json', '/public/manifest.json'], (_req, res) => {
+  const manifestPath = path.join(process.cwd(), 'public', 'manifest.json');
+  if (fs.existsSync(manifestPath)) {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.sendFile(manifestPath);
+  }
+  res.status(404).end();
+});
+
+// Serve public static assets
+app.use(express.static(path.join(process.cwd(), 'public')));
+
 // --- Resilient Gemini Multi-Key Pool & Model Cascade Manager ---
 const clientsMap = new Map<string, GoogleGenAI>();
 
@@ -1051,32 +1083,32 @@ app.post('/api/gemini/slides', async (req, res) => {
     return;
   }
 
-  const promptText = `أنت أستاذ ومحاضر عبقري في تبسيط وتفكيك أصعب العلوم والمفاهيم المعقدة مع أسلوب إلقاء صوتي جذاب وحركات بصرية سينمائية تشبه عروض الباوربوينت المتقدمة (Master Educator, Visual Animator & Audio Narrator).
+  const promptText = `أنت عالم لغوي ومحاضر عبقري في تبسيط أصعب العلوم والمفاهيم مع إتقان تام لقواعد النحو والإعراب وحركات الضبط التام للغة العربية (تشكيل الحركات: فتحة، ضمة، كسرة، سكون، شدة، تنوين).
 المطلوب: شرح الدرس أو الموضوع التالي في عرض تقديمي تعليمي تفاعلي احترافي مكون من 4 إلى 6 شرائح تفصيلية:
 "${topic}"
 
-يجب أن تتضمن كل شريحة:
-1. نص الشرح الصوتي المسموع الكامل (speechScript) باللهجة العربية الفصحى الواضحة والتعليمية (2 إلى 4 جمل مشوقة تشرح الشريحة وتوجه أنظار المشاهد).
-2. نوع الحركة الانتقالية للباوربوينت (animationType) اختر واحداً من: 'fade-up' | 'zoom-in' | 'bounce-in' | 'slide-in' | 'flip' | 'typewriter'.
-3. نقاط المحتوى (content) من 3 إلى 4 نقاط غنية وشافية بالمعلومات.
-4. تشبيه واقعي حسي ملموس (analogy).
-5. القاعدة الذهبية (keyTakeaway).
+شروط جوهرية وإلزامية:
+1. نص الشرح الصوتي (speechScript): يجب أن يكون مشكولاً بالحركات الإعرابية التامة الصحيحة (مُشَكَّلٌ تَشْكِيلاً دَقِيقاً يَلْتَزِمُ بِقَوَاعِدِ النَّحْوِ وَسَلَامَةِ اللُّغَةِ العَرَبِيَّةِ وَحَرَكَاتِ الإِعْرَابِ) لينطقه نموذج تحويل النص إلى صوت (TTS) بأعلى معايير الفصاحة والجمال بدون أي لحن أو خطأ إعرابي.
+2. نوع الحركة الانتقالية للباوربوينت (animationType): اختر واحداً من: 'fade-up' | 'zoom-in' | 'bounce-in' | 'slide-in' | 'flip' | 'typewriter'.
+3. نقاط المحتوى (content): من 3 إلى 4 نقاط غنية وواضحة وشافية بالمعلومات ومشكولة الكلمات الرئيسية.
+4. تشبيه واقعي حسي ملموس (analogy): تشبيه بديع يرسخ الفكرة.
+5. القاعدة الذهبية (keyTakeaway): حكمة الدرس أو الخلاصة الجامعة.
 
 يجب أن تكون الإجابة بصيغة JSON حصرية، دون أي نصوص إضافية خارج الـ JSON:
 {
   "topic": "${topic}",
   "summary": "ملخص شامل وشيق للدرس في سطرين",
-  "slideDuration": 12,
+  "slideDuration": 15,
   "slides": [
     {
       "id": "s1",
-      "title": "عنوان الشريحة الواضح",
+      "title": "عنوان الشريحة الواضح والمشكول",
       "badge": "الفكرة الجوهرية / آلية العمل / التشبيه الواقعي / أمثلة وتطبيقات / الخلاصة والاتقان",
       "animationType": "fade-up",
       "content": ["نقطة توضيحية 1 مفصلة", "نقطة توضيحية 2 مفصلة", "نقطة توضيحية 3 مفصلة"],
       "analogy": "تشبيه واقعي حسي يبسط الفكرة لأي مبتدئ",
       "keyTakeaway": "القاعدة الذهبية المستفادة من هذه الشريحة",
-      "speechScript": "نص الشرح الصوتي المسموع كاملاً الذي يقرأه الأستاذ بصوت واضح وممتع أثناء عرض هذه الشريحة."
+      "speechScript": "نَصُّ الشَّرْحِ الصَّوْتِيِّ المَسْمُوعِ مَشْكُولاً بِالضَّبْطِ التَّامِّ لِيُنْطَقَ بِفَصَاحَةٍ وَإِتْقَانٍ لُغَوِيٍّ سَلِيم."
     }
   ]
 }`;
@@ -1090,7 +1122,7 @@ app.post('/api/gemini/slides', async (req, res) => {
           contents: [{ role: 'user', parts: [{ text: promptText }] }],
           config: {
             responseMimeType: 'application/json',
-            temperature: 0.6,
+            temperature: 0.5,
           },
         });
 
@@ -1113,6 +1145,89 @@ app.post('/api/gemini/slides', async (req, res) => {
   }
 
   res.json(fallbackSlides);
+});
+
+// Helper function to turn PCM L16 (24000Hz, 1 channel) into standard WAV format Buffer
+function pcmToWavBuffer(pcmBuffer: Buffer, sampleRate = 24000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const dataSize = pcmBuffer.length;
+  const header = Buffer.alloc(44);
+
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // Subchunk1Size
+  header.writeUInt16LE(1, 20); // PCM format
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+// Studio-Grade Gemini Arabic Text-to-Speech (TTS) Endpoint
+app.post('/api/gemini/tts', async (req, res) => {
+  const { text = '', voice = 'Zephyr' } = req.body;
+  if (!text.trim()) {
+    res.status(400).json({ error: 'النص مطلوب للتوليد الصوتي' });
+    return;
+  }
+
+  const customKey = req.headers['x-gemini-key'] as string | undefined;
+  const availableKeys = getAvailableApiKeys(customKey);
+
+  if (availableKeys.length === 0) {
+    res.status(503).json({ error: 'لا يوجد مفتاح API متاح لتوليد الصوت' });
+    return;
+  }
+
+  for (const key of availableKeys) {
+    const ai = getGenAIClient(key);
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-tts-preview',
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: text.trim() }],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: voice || 'Zephyr' }, // 'Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'
+            },
+          },
+        },
+      });
+
+      const part = response.candidates?.[0]?.content?.parts?.[0];
+      if (part && part.inlineData && part.inlineData.data) {
+        const pcmRaw = Buffer.from(part.inlineData.data, 'base64');
+        const wavBuffer = pcmToWavBuffer(pcmRaw, 24000);
+        const dataUri = `data:audio/wav;base64,${wavBuffer.toString('base64')}`;
+        res.json({
+          success: true,
+          audioDataUri: dataUri,
+          durationSecs: Math.round(pcmRaw.length / (24000 * 2)),
+        });
+        return;
+      }
+    } catch (e: any) {
+      console.warn(`[Gemini TTS] Voice generation failed with key:`, e?.message);
+    }
+  }
+
+  res.status(500).json({ error: 'تعذر توليد الصوت عبر Gemini TTS' });
 });
 
 // Business Hub & E-Commerce Analysis Endpoint
@@ -1273,6 +1388,204 @@ app.post('/api/gemini/business', async (req, res) => {
           callToAction: 'تواصل معنا على الواتساب للاستفادة من العرض قبل نفاد الكمية!'
         }
       ]
+    });
+  }
+});
+
+// Smart AI Tutor & Interactive Examination Hub Endpoint
+app.post('/api/gemini/tutor', async (req, res) => {
+  const {
+    mode = 'lesson', // 'lesson' | 'exam' | 'voice_dialogue'
+    subject = 'العلوم والمعرفة العامة',
+    topic = 'موضوع دراسي',
+    difficulty = 'متوسط', // 'مبتدئ' | 'متوسط' | 'متقدم'
+    questionCount = 5,
+    userMessage = '',
+    conversationHistory = [],
+  } = req.body;
+
+  const customKey = req.headers['x-gemini-key'] as string | undefined;
+  const availableKeys = getAvailableApiKeys(customKey);
+
+  let systemPrompt = '';
+  let userPrompt = '';
+
+  if (mode === 'exam') {
+    systemPrompt = `أنت أستاذ أكاديمي وممتحن ذكي خبير في وضع الامتحانات الحقيقية والاختبارات الدقيقة.
+مهمتك توليد امتحان واقعي ودقيق ومتدرج الصعوبة في المادة والموضوع المحددين.
+يجب أن يحتوي الامتحان على ${questionCount} أسئلة اختيار من متعدد (4 خيارات لكل سؤال).
+لكل سؤال:
+1. نص السؤال بأسلوب تربوي واضح.
+2. 4 خيارات واقعية (خيارات ذكية وليست عشوائية).
+3. مؤشر الإجابة الصحيحة (correctAnswerIndex من 0 إلى 3).
+4. شرح تعليمي نموذجي يفصل سبب صحة الخيار الفائز ولماذا الخيارات الأخرى غير صحيحة.
+5. تلميح ذكي (hint) يساعد الطالب على الاستنتاج دون إعطائه الجواب المباشر.`;
+
+    userPrompt = `قم بإعداد امتحان حقيقي في:
+المادة: ${subject}
+الموضوع: ${topic}
+مستوى الصعوبة: ${difficulty}
+عدد الأسئلة: ${questionCount}
+
+أرجع الإجابة بتنسيق JSON الصارم فقط:
+{
+  "examTitle": "عنوان الامتحان",
+  "subject": "${subject}",
+  "topic": "${topic}",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "نص السؤال الأول",
+      "options": ["الخيار أ", "الخيار ب", "الخيار ج", "الخيار د"],
+      "correctAnswerIndex": 0,
+      "explanation": "الشرح التعليمي الوافي للإجابة الصحيحة",
+      "hint": "تلميح ذكي"
+    }
+  ]
+}`;
+  } else if (mode === 'voice_dialogue') {
+    systemPrompt = `أنت أستاذ وموجه تعليمي صوتي ودود وسريع البديهة.
+قواعد الحوار الصوتي فائق السرعة:
+1. تحدث باللغة العربية الفصيحة الواضحة والمشجعة.
+2. اجعل إجابتك مركزة ومباشرة وقصيرة جداً (أقل من 50 كلمة) حتى يقرأها النظام الصوتي فوراً بأقصى سرعة بدون تأخير.
+3. اشرح الفكرة بمثال سريع جداً ثم اختم بسؤال تفاعلي واحد لتختبر فهم الطالب شفهياً.
+4. تجنب الرموز والزخارف المعقدة لضمان القراءة الصوتية الطبيعية النظيفة.`;
+
+    const historyContext = Array.isArray(conversationHistory)
+      ? conversationHistory.slice(-4).map((m: any) => `${m.role === 'user' ? 'الطالب' : 'الأستاذ'}: ${m.text}`).join('\n')
+      : '';
+
+    userPrompt = `سياق الدرس: المادة ${subject} - الموضوع ${topic}
+${historyContext ? `تاريخ الحوار السابق:\n${historyContext}\n` : ''}
+كلام الطالب الصوتي: "${userMessage}"
+
+أرجع الإجابة بتنسيق JSON:
+{
+  "replyText": "الشرح التعليمي السريع المشجع",
+  "speechText": "نص نقي خالٍ من الأقواس والرموز للقراءة الصوتية الفورية",
+  "followUpQuestion": "سؤال اختبار شفهي سريع لقياس استيعاب الطالب"
+}`;
+  } else {
+    // mode === 'lesson'
+    systemPrompt = `أنت بروفيسور وأستاذ تعليمي عبقري تشرح الدروس بأعلى درجات الوضوح والتبسيط وفق أحدث الاستراتيجيات التربوية.
+قواعد الشرح:
+1. صغ مفهوماً تأسيسياً عميقاً وسهلاً.
+2. اربط المفهوم بتشبيه ملموس من الحياة اليومية (Real-World Analogy).
+3. قدم خطوات الحل المنهجي والشرح خطوة بخطوة.
+4. استخرج أهم النقاط الذهبية الواجب تذكرها في الامتحان.
+5. صغ ملخصاً صوتياً مشكولاً وسلساً ليستمع له الطالب بصوت الأستاذ.`;
+
+    userPrompt = `قم بإعداد درس تعليمي شامل ومبسط في:
+المادة: ${subject}
+الموضوع أو الدرس: ${topic}
+المستوى: ${difficulty}
+
+أرجع النتيجة بتنسيق JSON الصارم فقط:
+{
+  "title": "عنوان الدرس التفاعلي",
+  "subject": "${subject}",
+  "summary": "ملخص شامل وواضح للدرس في فقرة مركزة",
+  "coreConcepts": ["المفهوم التأسيسي الأول", "المفهوم الثاني", "المفهوم الثالث"],
+  "realWorldAnalogy": "تشبيه عبقري من واقع الحياة يرسخ المعلومة في الذهن للأبد",
+  "stepByStepGuide": ["الخطوة الأولى", "الخطوة الثانية", "الخطوة الثالثة"],
+  "keyTakeaways": ["النقطة الذهبية 1", "النقطة الذهبية 2"],
+  "speechVocalizedSummary": "نص صوتي فصيح وسلس يبدأ بترحيب مشجع ويشرح زبدة الدرس في 30 ثانية"
+}`;
+  }
+
+  for (const key of availableKeys) {
+    const ai = getGenAIClient(key);
+    for (const model of CASCADE_MODELS) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: 'application/json',
+            temperature: mode === 'voice_dialogue' ? 0.5 : 0.7,
+          },
+        });
+
+        const raw = response.text || response.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        let clean = raw.trim();
+        if (clean.startsWith('```json')) {
+          clean = clean.replace(/^```json\s*/i, '').replace(/```\s*$/i, '');
+        } else if (clean.startsWith('```')) {
+          clean = clean.replace(/^```\s*/i, '').replace(/```\s*$/i, '');
+        }
+        const parsed = JSON.parse(clean);
+        res.json(parsed);
+        return;
+      } catch (err: any) {
+        console.warn(`[Tutor Hub] Model ${model} note:`, err?.message);
+      }
+    }
+  }
+
+  // Graceful Offline/Cached Fallback
+  if (mode === 'voice_dialogue') {
+    res.json({
+      replyText: `أهلاً بك يا بطل! في موضوع "${topic}"، النقطة الجوهرية هي الربط بين القاعدة والتطبيق العملي. هل أنت مستعد لاختبار شفهي سريع حولها؟`,
+      speechText: `أهلاً بك يا بطل! في موضوع ${topic}، النقطة الجوهرية هي الربط بين القاعدة والتطبيق العملي. هل أنت مستعد لاختبار شفهي سريع؟`,
+      followUpQuestion: `اذكر لي أهم خطوة في تطبيق ${topic}؟`,
+    });
+  } else if (mode === 'exam') {
+    res.json({
+      examTitle: `امتحان التميز في ${topic}`,
+      subject,
+      topic,
+      questions: [
+        {
+          id: 'fb-q1',
+          question: `ما هو المبدأ الجوهري الأول في درس "${topic}"؟`,
+          options: [
+            'الفهم المتدرج للقواعد الأساسية وتطبيقها المنهجي',
+            'الحفظ السطحي دون مراجعة الأمثلة',
+            'تجاهل الشروط والمعطيات التأسيسية',
+            'الاعتماد على التخمين العشوائي'
+          ],
+          correctAnswerIndex: 0,
+          explanation: 'الفهم المتدرج يضمن ترسيخ المعرفة والقدرة على حل المسائل المركبة بدقة.',
+          hint: 'ابحث عن المبدأ القائم على الفهم المنهجي الصحيح.'
+        },
+        {
+          id: 'fb-q2',
+          question: `عند تحليل مسألة في ${topic}، ما هي الخطوة الأهم للوصول للحل الصحيح؟`,
+          options: [
+            'استخراج المعطيات وتحديد المطلوب ثم تطبيق القانون المناسب',
+            'التسرع في كتابة الإجابة دون قراءة المسألة',
+            'تغيير أرقام المسألة لتصبح أسهل',
+            'ترك السؤال بدون تفكير'
+          ],
+          correctAnswerIndex: 0,
+          explanation: 'تحديد المعطيات والمطلوب يوضح مسار الحل ويوفر أكثر من نصف وقت الإجابة.',
+          hint: 'فكر في أول خطوة يتخذها العالم أو المهندس عند حل المشكلات.'
+        }
+      ]
+    });
+  } else {
+    res.json({
+      title: `دليل التفوق الشامل: ${topic}`,
+      subject,
+      summary: `شرح تفصيلي ومبسط لدرس ${topic} في مادة ${subject}. يركز على الأساسيات، وأساليب الحل الذكية والتحضير للامتحانات النهائية.`,
+      coreConcepts: [
+        `المفهوم التأسيسي الأهم في ${topic}`,
+        'العلاقات المنطقية والقوانين الحاكمة للمسائل',
+        'طرق التحقق من صحة النتائج'
+      ],
+      realWorldAnalogy: `مثل بناء برج متين، كل قاعدة في ${topic} هي أساس تستند عليه بقية العمليات.`,
+      stepByStepGuide: [
+        'افهم المعطيات واقرأ المطلوب بتمعن.',
+        'اختر القانون أو الأسلوب الأنسب للمسألة.',
+        'نفذ خطوات الحل بالترتيب وتأكد من العمليات.',
+        'راجع الناتج النهائي وتأكد من توافقه مع المنطق الرياضي أو العلمي.'
+      ],
+      keyTakeaways: [
+        'الممارسة المستمرة وحل النماذج هو سر العلامة الكاملة.',
+        'ربط النظريات بالواقع يمنحك سرعة بديهة فائقة.'
+      ],
+      speechVocalizedSummary: `مرحباً بك يا غالي! درس اليوم عن ${topic}. سنركز على المفهوم الأساسي وسأدربك عليه خطوة بخطوة حتى تصبح متميزاً فيه وتجتاز امتحاناتك بأعلى الدرجات!`
     });
   }
 });

@@ -8,13 +8,15 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Conversation, GeneratedImage, GeneratedApp, GeneratedPresentation, BusinessProfile } from '../types';
+import { Conversation, GeneratedImage, GeneratedApp, GeneratedPresentation, BusinessProfile, ExamRecord, StudyLesson } from '../types';
 
 const CONV_KEY_PREFIX = 'freegen_conversations_';
 const IMG_KEY_PREFIX = 'freegen_images_';
 const APP_KEY_PREFIX = 'freegen_apps_';
 const SLIDES_KEY_PREFIX = 'freegen_slides_';
 const BUSINESS_KEY_PREFIX = 'freegen_business_';
+const EXAM_KEY_PREFIX = 'freegen_exams_';
+const LESSON_KEY_PREFIX = 'freegen_lessons_';
 
 export const storageService = {
   // --- Conversations ---
@@ -197,8 +199,17 @@ export const storageService = {
         cloudApps.sort((a, b) => b.createdAt - a.createdAt);
         localStorage.setItem(`${APP_KEY_PREFIX}${uid}`, JSON.stringify(cloudApps));
       }
-    } catch (e) {
-      console.warn('Firestore initial sync note:', e);
+
+      // Sync exams
+      const examSnap = await getDocs(collection(db, 'users', uid, 'exams'));
+      if (!examSnap.empty) {
+        const cloudExams: ExamRecord[] = [];
+        examSnap.forEach((d) => cloudExams.push(d.data() as ExamRecord));
+        cloudExams.sort((a, b) => b.createdAt - a.createdAt);
+        localStorage.setItem(`${EXAM_KEY_PREFIX}${uid}`, JSON.stringify(cloudExams));
+      }
+    } catch (_e) {
+      // Operates in offline mode seamlessly using cached local data
     }
   },
 
@@ -208,6 +219,7 @@ export const storageService = {
     const totalMessages = convs.reduce((sum, c) => sum + (c.messages?.length || 0), 0);
     const images = this.getImages(uid);
     const apps = this.getApps(uid);
+    const exams = this.getExams(uid);
 
     return {
       conversationsCount: convs.length,
@@ -215,6 +227,7 @@ export const storageService = {
       imagesCount: images.length,
       appsCount: apps.length,
       presentationsCount: this.getPresentations(uid).length,
+      examsCount: exams.length,
     };
   },
 
@@ -290,6 +303,101 @@ export const storageService = {
     this.clearAllApps(uid);
     localStorage.removeItem(`${SLIDES_KEY_PREFIX}${uid}`);
     localStorage.removeItem(`${BUSINESS_KEY_PREFIX}${uid}`);
+    localStorage.removeItem(`${EXAM_KEY_PREFIX}${uid}`);
+    localStorage.removeItem(`${LESSON_KEY_PREFIX}${uid}`);
+  },
+
+  // --- Exams Database & Offline Sync ---
+  getExams(uid: string): ExamRecord[] {
+    try {
+      const raw = localStorage.getItem(`${EXAM_KEY_PREFIX}${uid}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error('Failed to get exams:', e);
+      return [];
+    }
+  },
+
+  async saveExam(uid: string, exam: ExamRecord): Promise<void> {
+    try {
+      // 1. Instant local persistence
+      const list = this.getExams(uid);
+      const filtered = list.filter((e) => e.id !== exam.id);
+      filtered.unshift({ ...exam, syncedToCloud: navigator.onLine });
+      localStorage.setItem(`${EXAM_KEY_PREFIX}${uid}`, JSON.stringify(filtered));
+
+      // 2. Cloud Firestore sync if online
+      if (navigator.onLine) {
+        const examRef = doc(db, 'users', uid, 'exams', exam.id);
+        await setDoc(examRef, { ...exam, userId: uid, syncedToCloud: true }, { merge: true });
+      }
+    } catch (e) {
+      console.warn('Exam saved locally (offline or firestore note):', e);
+    }
+  },
+
+  async deleteExam(uid: string, examId: string): Promise<void> {
+    try {
+      const list = this.getExams(uid).filter((e) => e.id !== examId);
+      localStorage.setItem(`${EXAM_KEY_PREFIX}${uid}`, JSON.stringify(list));
+
+      if (navigator.onLine) {
+        const examRef = doc(db, 'users', uid, 'exams', examId);
+        await deleteDoc(examRef);
+      }
+    } catch (e) {
+      console.warn('Exam delete note:', e);
+    }
+  },
+
+  // Background silent sync of offline-completed exams when internet reconnects
+  async syncPendingOfflineExams(uid: string): Promise<void> {
+    if (!navigator.onLine) return;
+    try {
+      const list = this.getExams(uid);
+      const pending = list.filter((e) => !e.syncedToCloud);
+      if (pending.length === 0) return;
+
+      for (const exam of pending) {
+        const examRef = doc(db, 'users', uid, 'exams', exam.id);
+        await setDoc(examRef, { ...exam, userId: uid, syncedToCloud: true }, { merge: true });
+        exam.syncedToCloud = true;
+      }
+
+      localStorage.setItem(`${EXAM_KEY_PREFIX}${uid}`, JSON.stringify(list));
+    } catch (_e) {
+      // Background retry silently on next interval or online event
+    }
+  },
+
+  // --- Study Lessons Storage ---
+  getStudyLessons(uid: string): StudyLesson[] {
+    try {
+      const raw = localStorage.getItem(`${LESSON_KEY_PREFIX}${uid}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveStudyLesson(uid: string, lesson: StudyLesson): Promise<void> {
+    try {
+      const list = this.getStudyLessons(uid);
+      const filtered = list.filter((l) => l.id !== lesson.id);
+      filtered.unshift(lesson);
+      localStorage.setItem(`${LESSON_KEY_PREFIX}${uid}`, JSON.stringify(filtered.slice(0, 50)));
+
+      if (navigator.onLine) {
+        const lessonRef = doc(db, 'users', uid, 'lessons', lesson.id);
+        await setDoc(lessonRef, { ...lesson, userId: uid }, { merge: true });
+      }
+    } catch (_e) {
+      // Local caching ensures continuity
+    }
   },
 
   // --- Custom Gemini API Key Storage ---

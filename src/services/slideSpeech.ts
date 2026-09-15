@@ -12,7 +12,11 @@ class SlideSpeechService {
     }
   }
 
-  private getAudioContext(): AudioContext | null {
+  private currentAudioElement: HTMLAudioElement | null = null;
+  private audioCache: Map<string, string> = new Map();
+
+  // Get AudioContext instance
+  public getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.audioCtx) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -24,6 +28,37 @@ class SlideSpeechService {
       this.audioCtx.resume().catch(() => {});
     }
     return this.audioCtx;
+  }
+
+  // Generate high quality Studio AI Arabic TTS with diacritics
+  public async fetchStudioTTS(text: string, customApiKey?: string): Promise<string | null> {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    if (this.audioCache.has(trimmed)) {
+      return this.audioCache.get(trimmed)!;
+    }
+
+    try {
+      const res = await fetch('/api/gemini/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(customApiKey ? { 'x-gemini-key': customApiKey } : {}),
+        },
+        body: JSON.stringify({ text: trimmed }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audioDataUri) {
+          this.audioCache.set(trimmed, data.audioDataUri);
+          return data.audioDataUri;
+        }
+      }
+    } catch (e) {
+      console.warn('Backend studio TTS fetch failed, falling back to local speech:', e);
+    }
+    return null;
   }
 
   // Play PowerPoint-like transition & reveal sound effects using Web Audio API
@@ -122,10 +157,43 @@ class SlideSpeechService {
     return enVoices[0] || voices[0] || null;
   }
 
-  // Speak slide explanation aloud
-  public speakSlide(
+  // Play audio from data URI or synthesize with studio quality
+  public async playAudioUri(audioUri: string, onEnd?: () => void): Promise<void> {
+    this.stop();
+    return new Promise((resolve) => {
+      const audio = new Audio(audioUri);
+      this.currentAudioElement = audio;
+      this.isSpeaking = true;
+
+      audio.onended = () => {
+        this.isSpeaking = false;
+        this.currentAudioElement = null;
+        if (onEnd) onEnd();
+        resolve();
+      };
+
+      audio.onerror = () => {
+        this.isSpeaking = false;
+        this.currentAudioElement = null;
+        if (onEnd) onEnd();
+        resolve();
+      };
+
+      audio.play().catch(() => {
+        this.isSpeaking = false;
+        this.currentAudioElement = null;
+        if (onEnd) onEnd();
+        resolve();
+      });
+    });
+  }
+
+  // Speak slide explanation aloud (prefers Studio TTS audioUrl if provided, otherwise Web Speech API)
+  public async speakSlide(
     text: string,
     options?: {
+      audioUrl?: string;
+      customApiKey?: string;
       rate?: number;
       pitch?: number;
       lang?: string;
@@ -133,13 +201,29 @@ class SlideSpeechService {
       onBoundary?: (charIndex: number) => void;
     }
   ): Promise<void> {
+    this.stop();
+
+    // 1. If explicit audioUrl is already loaded, play it directly
+    if (options?.audioUrl) {
+      return this.playAudioUri(options.audioUrl, options?.onEnd);
+    }
+
+    // 2. Try fetching Studio TTS from backend first for pristine Arabic recitation
+    try {
+      const studioAudio = await this.fetchStudioTTS(text, options?.customApiKey);
+      if (studioAudio) {
+        return this.playAudioUri(studioAudio, options?.onEnd);
+      }
+    } catch {
+      // Fall through to browser speech
+    }
+
+    // 3. Fallback to browser SpeechSynthesis
     return new Promise((resolve) => {
       if (!this.synth || !text.trim()) {
         resolve();
         return;
       }
-
-      this.stop();
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = options?.lang || 'ar-SA';
@@ -171,6 +255,15 @@ class SlideSpeechService {
   }
 
   public stop() {
+    if (this.currentAudioElement) {
+      try {
+        this.currentAudioElement.pause();
+        this.currentAudioElement.currentTime = 0;
+      } catch {
+        // ignore
+      }
+      this.currentAudioElement = null;
+    }
     if (this.synth) {
       try {
         this.synth.cancel();

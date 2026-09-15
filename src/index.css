@@ -120,6 +120,45 @@
   animation: pptPulseGlow 2.5s infinite ease-in-out;
 }
 
+/* Interactive Laser Pointer for Presenters */
+.laser-pointer {
+  pointer-events: none;
+  position: fixed;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff1744 40%, rgba(255, 23, 68, 0.6) 75%, transparent 100%);
+  box-shadow: 0 0 18px 6px #ff1744, 0 0 35px 12px rgba(255, 23, 68, 0.5);
+  transform: translate(-50%, -50%);
+  z-index: 999999;
+  transition: transform 0.03s ease-out;
+}
+
+/* Print / PDF Export Styles */
+@media print {
+  nav, header, button, .no-print {
+    display: none !important;
+  }
+  body, html, #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+  .print-slide-page {
+    page-break-after: always !important;
+    break-after: page !important;
+    width: 100vw !important;
+    height: 56.25vw !important; /* 16:9 ratio */
+    max-height: 100vh !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    padding: 30px !important;
+    background: white !important;
+    color: #0f172a !important;
+  }
+}
+
 /* Prevent elastic bounce issues and support mobile safe areas */
 html, body, #root {
   height: 100%;
